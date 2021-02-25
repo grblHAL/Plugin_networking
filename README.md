@@ -17,13 +17,13 @@ Driver capable of networking and having the required "middleware" layer on top o
 
 These drivers has this "middleware" layer, further details for how to configure networking can be found on the driver page:
 
-* [iMXRT1062](../../drivers/IMXRT1062/README.md) for Teensy 4.1, cabled Ethernet.
+* [iMXRT1062](https://github.com/grblHAL/IMXRT1062) for Teensy 4.1, cabled Ethernet.
 
-* [MSP432E401Y](../../drivers/MSP432E401Y/README.md) for MSP432E401Y LaunchPad, cabled Ethernet.
+* [MSP432E401Y](https://github.com/grblHAL/MSP432E401Y) for MSP432E401Y LaunchPad, cabled Ethernet.
 
-* [TM4C129](../../drivers/TM4C129/README.md) for EK-TM4C1294XL Launchpad, cabled Ethernet.
+* [TM4C129](https://github.com/grblHAL/TM4C129) for EK-TM4C1294XL Launchpad, cabled Ethernet.
 
-* [ESP32](../../drivers/ESP32/README.md), wireless \(wifi\).
+* [ESP32](https://github.com/grblHAL/ESP32), wireless \(wifi\).
 
 #### Credits:
 
@@ -40,7 +40,7 @@ __NOTE:__ this plugin is only for the protocol layer. Driver specific code is re
 
 ---
 #### Simple websocket test app:
-![Test](../../media/websocket.png)
+![Test](media/websocket.png)
 
 ---
-2020-10-20
+2021-02-25
