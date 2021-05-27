@@ -36,6 +36,10 @@
 #include "WsStream.h"
 #endif
 
+#if FTP_ENABLE
+#include "ftpd.h"
+#endif
+
 //*****************************************************************************
 //
 // Ensure that AUTOIP COOP option is configured correctly.
