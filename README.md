@@ -6,8 +6,9 @@ This plugin contains code for "stream based" network protocol support on top of 
 
 #### Protocols supported:
 
-* Telnet \("raw" mode\)
-* Websocket
+* Telnet \("raw" mode\).
+* Websocket.
+* FTP \(requires [SD card plugin](https://github.com/grblHAL/Plugin_SD_card) and card inserted\).
 
 #### Dependencies:
 
@@ -31,7 +32,9 @@ Parts of WsStream.c are pulled from [patch 9525](http://savannah.nongnu.org/patc
 
 base64.c, sha1.c by Brad Conte, pulled from from the same patch as mentioned above.
 
-[multipartparser.c](https://github.com/francoiscolas/multipart-parser) by François Colas. 
+[multipartparser.c](https://github.com/francoiscolas/multipart-parser) by Fran&ccedil;ois Colas. 
+
+[ftp code](https://github.com/toelke/lwip-ftpd) by Florian Schulze, Philipp T&ouml;lke and David Olofson \(modified by me for grblHAL use\).
 
 wschat.html modified from original by [tutorialspoint.com](https://www.tutorialspoint.com/websockets/websockets_javascript_application.htm), for simple websocket testing \(edit line 103 to set address and port before use\).
 
@@ -43,4 +46,4 @@ __NOTE:__ this plugin is only for the protocol layer. Driver specific code is re
 ![Test](media/websocket.png)
 
 ---
-2021-02-25
+2021-05-28
