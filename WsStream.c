@@ -12,14 +12,14 @@ All rights reserved.
 Redistribution and use in source and binary forms, with or without modification,
 are permitted provided that the following conditions are met:
 
-· Redistributions of source code must retain the above copyright notice, this
+ï¿½ Redistributions of source code must retain the above copyright notice, this
 list of conditions and the following disclaimer.
 
-· Redistributions in binary form must reproduce the above copyright notice, this
+ï¿½ Redistributions in binary form must reproduce the above copyright notice, this
 list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-· Neither the name of the copyright holder nor the names of its contributors may
+ï¿½ Neither the name of the copyright holder nor the names of its contributors may
 be used to endorse or promote products derived from this software without
 specific prior written permission.
 
@@ -198,6 +198,18 @@ static const ws_sessiondata_t defaultSettings =
     .http_request = NULL,
     .hdrsize = MAX_HTTP_HEADER_SIZE,
     .traffic_handler = WsConnectionHandler
+};
+
+static const io_stream_t websocket_stream = {
+    .type = StreamType_WebSocket,
+    .connected = true,
+    .read = WsStreamGetC,
+    .write = WsStreamWriteS,
+    .write_char = WsStreamPutC,
+    .get_rx_buffer_available = WsStreamRxFree,
+    .reset_read_buffer = WsStreamRxFlush,
+    .cancel_read_buffer = WsStreamRxCancel,
+    .suspend_read = WsStreamSuspendInput
 };
 
 static ws_sessiondata_t streamSession;
@@ -428,8 +440,8 @@ static void closeSocket (ws_sessiondata_t *session, struct tcp_pcb *pcb)
     session->state = WsState_Listen;
     session->traffic_handler = WsConnectionHandler;
 
-    // Switch grbl I/O stream back to UART
-    selectStream(StreamType_Serial);
+    // Switch I/O stream back to default
+    hal.stream_select(NULL);
 }
 
 //
@@ -540,8 +552,8 @@ void WsStreamClose (void)
     streamSession.lastSendTime = 0;
     streamSession.linkLost = false;
 
-    // Switch grbl I/O stream back to UART
-    selectStream(StreamType_Serial);
+    // Switch I/O stream back to default
+    hal.stream_select(NULL);
 }
 
 void WsStreamListen (uint16_t port)
@@ -735,7 +747,7 @@ static void WsConnectionHandler (ws_sessiondata_t *session)
                     http_write(session->pcbConnect, response, (u16_t *)&len, 1);
                     session->traffic_handler = WsStreamHandler;
                     session->lastSendTime = xTaskGetTickCount();
-                    selectStream(StreamType_WebSocket);
+                    hal.stream_select(&websocket_stream);
                 }
             }
         }

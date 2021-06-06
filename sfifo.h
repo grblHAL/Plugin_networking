@@ -9,6 +9,14 @@
  *
  */
 
+#if defined(ARDUINO)
+#include "../driver.h"
+#else
+#include "driver.h"
+#endif
+
+#if FTP_ENABLE
+
 #include "lwip/errno.h"
 
 #ifndef EINVAL
@@ -35,3 +43,5 @@ typedef struct
 int sfifo_init(sfifo_t *f, int size);
 int sfifo_write(sfifo_t *f, const void *_buf, int len);
 void sfifo_close(sfifo_t *f);
+
+#endif

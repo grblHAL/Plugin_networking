@@ -47,9 +47,11 @@
  * 2021-05-22: Extracted from ftpd.c and modified by Terje Io for grblHAL networking
  */
 
-#include <string.h>
-
 #include "sfifo.h"
+
+#if FTP_ENABLE
+
+#include <string.h>
 
 /*
  * Alloc buffer, init FIFO etc...
@@ -122,3 +124,5 @@ int sfifo_write(sfifo_t *f, const void *_buf, int len)
 
     return total;
 }
+
+#endif

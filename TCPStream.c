@@ -12,14 +12,14 @@ All rights reserved.
 Redistribution and use in source and binary forms, with or without modification,
 are permitted provided that the following conditions are met:
 
-· Redistributions of source code must retain the above copyright notice, this
+ï¿½ Redistributions of source code must retain the above copyright notice, this
 list of conditions and the following disclaimer.
 
-· Redistributions in binary form must reproduce the above copyright notice, this
+ï¿½ Redistributions in binary form must reproduce the above copyright notice, this
 list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-· Neither the name of the copyright holder nor the names of its contributors may
+ï¿½ Neither the name of the copyright holder nor the names of its contributors may
 be used to endorse or promote products derived from this software without
 specific prior written permission.
 
@@ -106,6 +106,18 @@ static const sessiondata_t defaultSettings =
     .reconnectCount = 0,
     .errorCount = 0,
     .lastErr = ERR_OK
+};
+
+static const io_stream_t telnet_stream = {
+    .type = StreamType_Telnet,
+    .connected = true,
+    .read = TCPStreamGetC,
+    .write = TCPStreamWriteS,
+    .write_char = TCPStreamPutC,
+    .get_rx_buffer_available = TCPStreamRxFree,
+    .reset_read_buffer = TCPStreamRxFlush,
+    .cancel_read_buffer = TCPStreamRxCancel,
+    .suspend_read = TCPStreamSuspendInput
 };
 
 static sessiondata_t streamSession;
@@ -325,8 +337,8 @@ static void closeSocket (sessiondata_t *session, struct tcp_pcb *pcb)
     session->pcbConnect = NULL;
     session->state = TCPState_Listen;
 
-    // Switch grbl I/O stream back to UART
-    selectStream(StreamType_Serial);
+    // Switch I/O stream back to default
+    hal.stream_select(NULL);
 }
 
 //
@@ -400,8 +412,8 @@ static err_t TCPStreamAccept (void *arg, struct tcp_pcb *pcb, err_t err)
     tcp_poll(pcb, streamPoll, 1000 / TCP_SLOW_INTERVAL);
     tcp_sent(pcb, streamSent);
 
-    // Switch grbl I/O stream to TCP/IP connection
-    selectStream(StreamType_Telnet);
+    // Switch I/O stream to Telnet connection
+    hal.stream_select(&telnet_stream);
 
     return ERR_OK;
 }
@@ -433,8 +445,8 @@ void TCPStreamClose (void)
     streamSession.lastSendTime = 0;
     streamSession.linkLost = false;
 
-    // Switch grbl I/O stream back to UART
-    selectStream(StreamType_Serial);
+    // Switch grbl I/O stream back to default
+    hal.stream_select(NULL);
 }
 
 void TCPStreamListen (uint16_t port)

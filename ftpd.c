@@ -60,9 +60,11 @@
 #undef LWIP_DEBUGF
 #endif
 
-#define FTPD_DEBUG 1
-//#define LWIP_DEBUGF(debug, message) do { dbg message; } while(0)
-#define LWIP_DEBUGF(debug, message)
+#define FTPD_DEBUG 0
+
+#if FTPD_DEBUG
+
+#define LWIP_DEBUGF(debug, message) do { dbg message; } while(0)
 
 void dbg (char *msg, ...)
 {
@@ -74,7 +76,15 @@ void dbg (char *msg, ...)
     hal.stream.write(buffer);
 }
 
+#else
+#define LWIP_DEBUGF(debug, message)
+#endif
+
 #define TELNET_IAC 255
+
+#ifndef FTP_TXPOLL
+#define FTP_TXPOLL 0
+#endif
 
 #ifndef EINVAL
 #define EINVAL 1
@@ -243,10 +253,12 @@ typedef struct ftpd_msgstate {
     ftpd_cmd_t cmd;
 } ftpd_msgstate_t;
 
+#if FTP_TXPOLL
 static struct {
     ftpd_datastate_t *fsd;
     struct tcp_pcb *pcb;
 } poll;
+#endif
 
 static void send_msg (struct tcp_pcb *pcb, ftpd_msgstate_t *fsm, const char *msg, ...);
 
@@ -449,9 +461,12 @@ static err_t ftpd_datasent (void *arg, struct tcp_pcb *pcb, u16_t len)
             send_next_directory(fsd, pcb, 1);
             break;
         case FTPD_RETR:
+#if FTP_TXPOLL
             poll.fsd = fsd;
             poll.pcb = pcb;
-    //      send_file(fsd, pcb);
+#else
+            send_file(fsd, pcb);
+#endif
             break;
         default:
             break;
@@ -518,9 +533,12 @@ static err_t ftpd_dataconnected (void *arg, struct tcp_pcb *pcb, err_t err)
             send_next_directory(fsd, pcb, 1);
             break;
         case FTPD_RETR:
+#if FTP_TXPOLL
             poll.fsd = fsd;
             poll.pcb = pcb;
-    //      send_file(fsd, pcb);
+#else
+            send_file(fsd, pcb);
+#endif
             break;
         default:
             break;
@@ -1116,7 +1134,7 @@ static err_t ftpd_msgrecv (void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t
                 LWIP_DEBUGF(FTPD_DEBUG, ("query: %s\n", fsm->cmd.text));
 
                 strncpy(cmd, fsm->cmd.text, 4);
-                for (pt = cmd; isalpha(*pt) && pt < &cmd[4]; pt++)
+                for (pt = cmd; isalpha((uint8_t)*pt) && pt < &cmd[4]; pt++)
                     *pt = toupper(*pt);
 
                 *pt = '\0';
@@ -1219,10 +1237,12 @@ static err_t ftpd_msgaccept (void *arg, struct tcp_pcb *pcb, err_t err)
 
 void ftpd_poll (void)
 {
+#if FTP_TXPOLL
     if(poll.pcb) {
         send_file(poll.fsd, poll.pcb);
         poll.pcb = NULL;
     }
+#endif
 }
 
 void ftpd_init (void)
@@ -1233,8 +1253,12 @@ void ftpd_init (void)
 
     pcb = tcp_new();
     LWIP_DEBUGF(FTPD_DEBUG, ("ftpd_init: pcb: %x\n", pcb));
+#if FTPD_DEBUG
     int r = tcp_bind(pcb, IP_ADDR_ANY, 21);
     LWIP_DEBUGF(FTPD_DEBUG, ("ftpd_init: tcp_bind: %d\n", r));
+#else
+    tcp_bind(pcb, IP_ADDR_ANY, 21);
+#endif
     pcb = tcp_listen(pcb);
     LWIP_DEBUGF(FTPD_DEBUG, ("ftpd_init: listen-pcb: %x\n", pcb));
     tcp_accept(pcb, ftpd_msgaccept);
