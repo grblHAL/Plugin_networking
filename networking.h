@@ -80,4 +80,6 @@ typedef uint32_t TickType_t;
 
 #endif
 
+network_services_t networking_get_services_list (char *list);
+
 #endif
