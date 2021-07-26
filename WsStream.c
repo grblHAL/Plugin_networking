@@ -1,7 +1,7 @@
 //
 // WsStream.c - lwIP websocket stream implementation
 //
-// v1.3 / 2021-03-13 / Io Engineering / Terje
+// v1.4 / 2021-07-17 / Io Engineering / Terje
 //
 
 /*
@@ -12,14 +12,14 @@ All rights reserved.
 Redistribution and use in source and binary forms, with or without modification,
 are permitted provided that the following conditions are met:
 
-� Redistributions of source code must retain the above copyright notice, this
+ï¿½ Redistributions of source code must retain the above copyright notice, this
 list of conditions and the following disclaimer.
 
-� Redistributions in binary form must reproduce the above copyright notice, this
+ï¿½ Redistributions in binary form must reproduce the above copyright notice, this
 list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-� Neither the name of the copyright holder nor the names of its contributors may
+ï¿½ Neither the name of the copyright holder nor the names of its contributors may
 be used to endorse or promote products derived from this software without
 specific prior written permission.
 
@@ -57,6 +57,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "strutils.h"
 
 #include "grbl/grbl.h"
+#include "grbl/protocol.h"
 
 //#define WSDEBUG
 
@@ -65,17 +66,17 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define MAX_HTTP_HEADER_SIZE 512
 #define FRAME_NONE 0xFF
 
-static const char WS_GUID[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-static const char WS_KEY[] = "Sec-WebSocket-Key: ";
-static const char WS_PROT[] = "Sec-WebSocket-Protocol: ";
-static const char WS_RSP[] = "HTTP/1.1 101 Switching Protocols" CRLF \
-                             "Upgrade: websocket" CRLF \
-                             "Connection: Upgrade" CRLF \
-                             "Sec-WebSocket-Accept: ";
-static const char HTTP_400[] = "HTTP/1.1 400" CRLF \
-                               "Status: 400 Bad Request" CRLF CRLF;
-static const char HTTP_500[] = "HTTP/1.1 500" CRLF \
-                               "Status: 500 Internal Server Error" CRLF CRLF;
+PROGMEM static const char WS_GUID[]  = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+PROGMEM static const char WS_KEY[]   = "Sec-WebSocket-Key: ";
+PROGMEM static const char WS_PROT[]  = "Sec-WebSocket-Protocol: ";
+PROGMEM static const char WS_RSP[]   = "HTTP/1.1 101 Switching Protocols" CRLF \
+                                       "Upgrade: websocket" CRLF \
+                                       "Connection: Upgrade" CRLF \
+                                       "Sec-WebSocket-Accept: ";
+PROGMEM static const char HTTP_400[] = "HTTP/1.1 400" CRLF \
+                                       "Status: 400 Bad Request" CRLF CRLF;
+PROGMEM static const char HTTP_500[] = "HTTP/1.1 500" CRLF \
+                                       "Status: 500 Internal Server Error" CRLF CRLF;
 
 typedef enum {
     WsOpcode_Continuation = 0x00,
@@ -200,19 +201,8 @@ static const ws_sessiondata_t defaultSettings =
     .traffic_handler = WsConnectionHandler
 };
 
-static const io_stream_t websocket_stream = {
-    .type = StreamType_WebSocket,
-    .connected = true,
-    .read = WsStreamGetC,
-    .write = WsStreamWriteS,
-    .write_char = WsStreamPutC,
-    .get_rx_buffer_free = WsStreamRxFree,
-    .reset_read_buffer = WsStreamRxFlush,
-    .cancel_read_buffer = WsStreamRxCancel,
-    .suspend_read = WsStreamSuspendInput
-};
-
 static ws_sessiondata_t streamSession;
+static enqueue_realtime_command_ptr enqueue_realtime_command = protocol_enqueue_realtime_command;
 
 void WsStreamInit (void)
 {
@@ -233,13 +223,12 @@ void WsStreamInit (void)
 int16_t WsStreamGetC (void)
 {
     int16_t data;
-    uint_fast16_t bptr = streamSession.rxbuf.tail;
 
-    if(bptr == streamSession.rxbuf.head)
+    if(streamSession.rxbuf.tail == streamSession.rxbuf.head)
         return -1; // no data available else EOF
 
-    data = streamSession.rxbuf.data[bptr++];                // Get next character, increment tmp pointer
-    streamSession.rxbuf.tail = bptr & (RX_BUFFER_SIZE - 1); // and update pointer
+    data = streamSession.rxbuf.data[streamSession.rxbuf.tail];                          // Get next character
+    streamSession.rxbuf.tail = BUFNEXT(streamSession.rxbuf.tail, streamSession.rxbuf);  // and update pointer
 
     return data;
 }
@@ -265,7 +254,7 @@ void WsStreamRxCancel (void)
 {
     streamSession.rxbuf.data[streamSession.rxbuf.head] = ASCII_CAN;
     streamSession.rxbuf.tail = streamSession.rxbuf.head;
-    streamSession.rxbuf.head = (streamSession.rxbuf.tail + 1) & (RX_BUFFER_SIZE - 1);
+    streamSession.rxbuf.head = BUFNEXT(streamSession.rxbuf.head, streamSession.rxbuf);;
 }
 
 bool WsStreamSuspendInput (bool suspend)
@@ -277,26 +266,21 @@ bool WsStreamRxInsert (char c)
 {
     // discard input if MPG has taken over...
     if(hal.stream.type != StreamType_MPG) {
-
-        uint_fast16_t bptr = (streamSession.rxbuf.head + 1) & (RX_BUFFER_SIZE - 1); // Get next head pointer
-
-        if(bptr == streamSession.rxbuf.tail)                        // If buffer full
-            streamSession.rxbuf.overflow = true;                    // flag overflow
-        else if(c == CMD_TOOL_ACK && !streamSession.rxbuf.backup) {
-            stream_rx_backup(&streamSession.rxbuf);
-            hal.stream.read = WsStreamGetC; // restore normal input
-        } if(!hal.stream.enqueue_realtime_command(c)) {             // If not a real time command
+        if(!enqueue_realtime_command(c)) {                          // If not a real time command attempt to buffer it
+            uint_fast16_t next_head = BUFNEXT(streamSession.rxbuf.head, streamSession.rxbuf);
+            if(next_head == streamSession.rxbuf.tail)               // If buffer full
+                streamSession.rxbuf.overflow = true;                // flag overflow
             streamSession.rxbuf.data[streamSession.rxbuf.head] = c; // add data to buffer
-            streamSession.rxbuf.head = bptr;                        // and update pointer
+            streamSession.rxbuf.head = next_head;                   // and update pointer
         }
     }
 
     return !streamSession.rxbuf.overflow;
 }
 
-bool WsStreamPutC (const char c) {
-
-    uint32_t next_head = (streamSession.txbuf.head + 1) & (TX_BUFFER_SIZE - 1);  // Get and update head pointer
+bool WsStreamPutC (const char c)
+{
+    uint_fast16_t next_head = BUFNEXT(streamSession.txbuf.head, streamSession.txbuf);
 
     while(streamSession.txbuf.tail == next_head) {                               // Buffer full, block until space is available...
         if(!hal.stream_blocking_callback())
@@ -341,13 +325,12 @@ uint16_t WsStreamTxCount(void) {
 static int16_t streamReadTXC (void)
 {
     int16_t data;
-    uint_fast16_t bptr = streamSession.txbuf.tail;
 
-    if(bptr == streamSession.txbuf.head)
+    if(streamSession.txbuf.tail == streamSession.txbuf.head)
         return -1; // no data available else EOF
 
-    data = streamSession.txbuf.data[bptr++];                 // Get next character, increment tmp pointer
-    streamSession.txbuf.tail = bptr & (TX_BUFFER_SIZE - 1);  // and update pointer
+    data = streamSession.txbuf.data[streamSession.txbuf.tail];                          // Get next character
+    streamSession.txbuf.tail = BUFNEXT(streamSession.txbuf.tail, streamSession.txbuf);  // and update pointer
 
     return data;
 }
@@ -625,11 +608,34 @@ static void http_write_error (ws_sessiondata_t *session, const char *status)
     session->state = WsStateClosing;
 }
 
+static enqueue_realtime_command_ptr WsSetRtHandler (enqueue_realtime_command_ptr handler)
+{
+    enqueue_realtime_command_ptr prev = enqueue_realtime_command;
+
+    if(handler)
+        enqueue_realtime_command = handler;
+
+    return prev;
+}
+
 //
 // Process connection handshake
 //
 static void WsConnectionHandler (ws_sessiondata_t *session)
 {
+    static const io_stream_t websocket_stream = {
+        .type = StreamType_WebSocket,
+        .connected = true,
+        .read = WsStreamGetC,
+        .write = WsStreamWriteS,
+        .write_char = WsStreamPutC,
+        .get_rx_buffer_free = WsStreamRxFree,
+        .reset_read_buffer = WsStreamRxFlush,
+        .cancel_read_buffer = WsStreamRxCancel,
+        .suspend_read = WsStreamSuspendInput,
+        .set_enqueue_rt_handler = WsSetRtHandler
+    };
+
     bool hdr_ok;
     static uint32_t ptr = 0;
 

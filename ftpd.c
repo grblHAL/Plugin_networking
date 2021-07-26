@@ -207,7 +207,7 @@ enum ftpd_state_e {
     FTPD_QUIT
 };
 
-static const char *month_table[12] = {
+PROGMEM static const char *month_table[12] = {
     "Jan",
     "Feb",
     "Mar",
@@ -221,7 +221,6 @@ static const char *month_table[12] = {
     "Nov",
     "Dec"
 };
-
 
 typedef struct {
     int connected;

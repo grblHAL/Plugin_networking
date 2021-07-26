@@ -2,7 +2,7 @@
 
 MIT License
 
-Copyright (c) 2019 François Colas
+Copyright (c) 2019 Franï¿½ois Colas
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -24,9 +24,9 @@ SOFTWARE.
 
 */
 
-#include "multipartparser.h"
-
 #include <string.h>
+
+#include "multipartparser.h"
 
 #define CR '\r'
 #define LF '\n'

@@ -1,7 +1,7 @@
 //
 // TCPStream.c - lwIP stream implementation, raw "Telnet"
 //
-// v1.3 / 2021-03-13 / Io Engineering / Terje
+// v1.4 / 2021-07-17 / Io Engineering / Terje
 //
 
 /*
@@ -12,14 +12,14 @@ All rights reserved.
 Redistribution and use in source and binary forms, with or without modification,
 are permitted provided that the following conditions are met:
 
-� Redistributions of source code must retain the above copyright notice, this
+ï¿½ Redistributions of source code must retain the above copyright notice, this
 list of conditions and the following disclaimer.
 
-� Redistributions in binary form must reproduce the above copyright notice, this
+ï¿½ Redistributions in binary form must reproduce the above copyright notice, this
 list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-� Neither the name of the copyright holder nor the names of its contributors may
+ï¿½ Neither the name of the copyright holder nor the names of its contributors may
 be used to endorse or promote products derived from this software without
 specific prior written permission.
 
@@ -49,6 +49,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "TCPStream.h"
 #include "networking.h"
+#include "grbl/protocol.h"
 
 typedef enum
 {
@@ -108,19 +109,8 @@ static const sessiondata_t defaultSettings =
     .lastErr = ERR_OK
 };
 
-static const io_stream_t telnet_stream = {
-    .type = StreamType_Telnet,
-    .connected = true,
-    .read = TCPStreamGetC,
-    .write = TCPStreamWriteS,
-    .write_char = TCPStreamPutC,
-    .get_rx_buffer_free = TCPStreamRxFree,
-    .reset_read_buffer = TCPStreamRxFlush,
-    .cancel_read_buffer = TCPStreamRxCancel,
-    .suspend_read = TCPStreamSuspendInput
-};
-
 static sessiondata_t streamSession;
+static enqueue_realtime_command_ptr enqueue_realtime_command = protocol_enqueue_realtime_command;
 
 void TCPStreamInit (void)
 {
@@ -141,13 +131,12 @@ void TCPStreamInit (void)
 int16_t TCPStreamGetC (void)
 {
     int16_t data;
-    uint_fast16_t bptr = streamSession.rxbuf.tail;
 
-    if(bptr == streamSession.rxbuf.head)
+    if(streamSession.rxbuf.tail == streamSession.rxbuf.head)
         return -1; // no data available else EOF
 
-    data = streamSession.rxbuf.data[bptr++];                // Get next character, increment tmp pointer
-    streamSession.rxbuf.tail = bptr & (RX_BUFFER_SIZE - 1); // and update pointer
+    data = streamSession.rxbuf.data[streamSession.rxbuf.tail];                          // Get next character
+    streamSession.rxbuf.tail = BUFNEXT(streamSession.rxbuf.tail, streamSession.rxbuf);  // and update pointer
 
     return data;
 }
@@ -173,7 +162,7 @@ void TCPStreamRxCancel (void)
 {
     streamSession.rxbuf.data[streamSession.rxbuf.head] = ASCII_CAN;
     streamSession.rxbuf.tail = streamSession.rxbuf.head;
-    streamSession.rxbuf.head = (streamSession.rxbuf.tail + 1) & (RX_BUFFER_SIZE - 1);
+    streamSession.rxbuf.head = BUFNEXT(streamSession.rxbuf.head, streamSession.rxbuf);;
 }
 
 bool TCPStreamSuspendInput (bool suspend)
@@ -185,17 +174,12 @@ static bool streamBufferRX (char c)
 {
     // discard input if MPG has taken over...
     if(hal.stream.type != StreamType_MPG) {
-
-        uint_fast16_t bptr = (streamSession.rxbuf.head + 1) & (RX_BUFFER_SIZE - 1); // Get next head pointer
-
-        if(bptr == streamSession.rxbuf.tail)                        // If buffer full
-            streamSession.rxbuf.overflow = true;                    // flag overflow
-        else if(c == CMD_TOOL_ACK && !streamSession.rxbuf.backup) {
-            stream_rx_backup(&streamSession.rxbuf);
-            hal.stream.read = TCPStreamGetC; // restore normal input
-        } else if(!hal.stream.enqueue_realtime_command(c)) {        // If not a real time command
+        if(!enqueue_realtime_command(c)) {                          // If not a real time command attempt to buffer it
+            uint_fast16_t next_head = BUFNEXT(streamSession.rxbuf.head, streamSession.rxbuf);
+            if(next_head == streamSession.rxbuf.tail)               // If buffer full
+                streamSession.rxbuf.overflow = true;                // flag overflow
             streamSession.rxbuf.data[streamSession.rxbuf.head] = c; // add data to buffer
-            streamSession.rxbuf.head = bptr;                        // and update pointer
+            streamSession.rxbuf.head = next_head;                   // and update pointer
         }
     }
 
@@ -204,15 +188,15 @@ static bool streamBufferRX (char c)
 
 bool TCPStreamPutC (const char c)
 {
-    uint32_t next_head = (streamSession.txbuf.head + 1) & (TX_BUFFER_SIZE - 1);  // Get and update head pointer
+    uint_fast16_t next_head = BUFNEXT(streamSession.txbuf.head, streamSession.txbuf);
 
-    while(streamSession.txbuf.tail == next_head) {                               // Buffer full, block until space is available...
+    while(streamSession.txbuf.tail == next_head) {  // Buffer full, block until space is available...
         if(!hal.stream_blocking_callback())
             return false;
     }
 
-    streamSession.txbuf.data[streamSession.txbuf.head] = c;                     // Add data to buffer
-    streamSession.txbuf.head = next_head;                                       // and update head pointer
+    streamSession.txbuf.data[streamSession.txbuf.head] = c; // Add data to buffer
+    streamSession.txbuf.head = next_head;                   // and update head pointer
 
     return true;
 }
@@ -249,13 +233,12 @@ uint16_t TCPStreamTxCount(void) {
 static int16_t streamReadTXC (void)
 {
     int16_t data;
-    uint_fast16_t bptr = streamSession.txbuf.tail;
 
-    if(bptr == streamSession.txbuf.head)
+    if(streamSession.txbuf.tail == streamSession.txbuf.head)
         return -1; // no data available else EOF
 
-    data = streamSession.txbuf.data[bptr++];                 // Get next character, increment tmp pointer
-    streamSession.txbuf.tail = bptr & (TX_BUFFER_SIZE - 1);  // and update pointer
+    data = streamSession.txbuf.data[streamSession.txbuf.tail];                          // Get next character
+    streamSession.txbuf.tail = BUFNEXT(streamSession.txbuf.tail, streamSession.txbuf);  // and update pointer
 
     return data;
 }
@@ -378,8 +361,31 @@ static err_t streamSent (void *arg, struct tcp_pcb *pcb, u16_t ui16len)
     return ERR_OK;
 }
 
+static enqueue_realtime_command_ptr TCPSetRtHandler (enqueue_realtime_command_ptr handler)
+{
+    enqueue_realtime_command_ptr prev = enqueue_realtime_command;
+
+    if(handler)
+        enqueue_realtime_command = handler;
+
+    return prev;
+}
+
 static err_t TCPStreamAccept (void *arg, struct tcp_pcb *pcb, err_t err)
 {
+    static const io_stream_t telnet_stream = {
+        .type = StreamType_Telnet,
+        .connected = true,
+        .read = TCPStreamGetC,
+        .write = TCPStreamWriteS,
+        .write_char = TCPStreamPutC,
+        .get_rx_buffer_free = TCPStreamRxFree,
+        .reset_read_buffer = TCPStreamRxFlush,
+        .cancel_read_buffer = TCPStreamRxCancel,
+        .suspend_read = TCPStreamSuspendInput,
+        .set_enqueue_rt_handler = TCPSetRtHandler
+    };
+
     sessiondata_t *session = arg;
 
     if(session->state != TCPState_Listen) {
@@ -551,4 +557,3 @@ void TCPStreamPoll (void)
 }
 
 #endif
-
