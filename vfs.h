@@ -97,6 +97,7 @@ vfs_file_t* vfs_open(vfs_t* vfs, const char* filename, const char* mode);
 vfs_t* vfs_openfs();
 void vfs_close(vfs_t* vfs);
 int vfs_stat(vfs_t* vfs, const char* filename, vfs_stat_t* st);
+int vfs_size (vfs_file_t *file);
 void vfs_closedir(vfs_dir_t* dir);
 vfs_dir_t* vfs_opendir(vfs_t* vfs, const char* path);
 char *vfs_fixpath (char *path);

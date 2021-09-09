@@ -1,7 +1,7 @@
 //
 // TCPStream.c - lwIP stream implementation, raw "Telnet"
 //
-// v1.4 / 2021-07-17 / Io Engineering / Terje
+// v1.5 / 2021-09-08 / Io Engineering / Terje
 //
 
 /*
@@ -361,6 +361,11 @@ static err_t streamSent (void *arg, struct tcp_pcb *pcb, u16_t ui16len)
     return ERR_OK;
 }
 
+static bool TCPEnqueueRtCommand (char c)
+{
+    return enqueue_realtime_command(c);
+}
+
 static enqueue_realtime_command_ptr TCPSetRtHandler (enqueue_realtime_command_ptr handler)
 {
     enqueue_realtime_command_ptr prev = enqueue_realtime_command;
@@ -379,6 +384,7 @@ static err_t TCPStreamAccept (void *arg, struct tcp_pcb *pcb, err_t err)
         .read = TCPStreamGetC,
         .write = TCPStreamWriteS,
         .write_char = TCPStreamPutC,
+        .enqueue_rt_command = TCPEnqueueRtCommand,
         .get_rx_buffer_free = TCPStreamRxFree,
         .reset_read_buffer = TCPStreamRxFlush,
         .cancel_read_buffer = TCPStreamRxCancel,

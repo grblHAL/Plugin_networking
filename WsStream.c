@@ -1,7 +1,7 @@
 //
 // WsStream.c - lwIP websocket stream implementation
 //
-// v1.4 / 2021-07-17 / Io Engineering / Terje
+// v1.5 / 2021-09-08 / Io Engineering / Terje
 //
 
 /*
@@ -608,6 +608,11 @@ static void http_write_error (ws_sessiondata_t *session, const char *status)
     session->state = WsStateClosing;
 }
 
+static bool WsEnqueueRtCommand (char c)
+{
+    return enqueue_realtime_command(c);
+}
+
 static enqueue_realtime_command_ptr WsSetRtHandler (enqueue_realtime_command_ptr handler)
 {
     enqueue_realtime_command_ptr prev = enqueue_realtime_command;
@@ -629,6 +634,7 @@ static void WsConnectionHandler (ws_sessiondata_t *session)
         .read = WsStreamGetC,
         .write = WsStreamWriteS,
         .write_char = WsStreamPutC,
+        .enqueue_rt_command = WsEnqueueRtCommand,
         .get_rx_buffer_free = WsStreamRxFree,
         .reset_read_buffer = WsStreamRxFlush,
         .cancel_read_buffer = WsStreamRxCancel,

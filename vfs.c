@@ -1,4 +1,4 @@
-/* Copyright (c) 2013, Philipp Tölke
+/* Copyright (c) 2013, Philipp Tï¿½lke
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -47,6 +47,11 @@ int vfs_read (void *buffer, int dummy, int len, vfs_file_t *file)
     FRESULT r = f_read(file, buffer, len, &bytesread);
 
     return r == FR_OK ? bytesread : -r;
+}
+
+int vfs_size (vfs_file_t *file)
+{
+    return f_size(file);
 }
 
 vfs_dirent_t *vfs_readdir(vfs_dir_t *dir)
