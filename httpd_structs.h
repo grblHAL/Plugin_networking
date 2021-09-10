@@ -1,14 +1,22 @@
+#include "driver.h"
+
+#if HTTP_ENABLE
+
 #ifndef LWIP_HTTPD_STRUCTS_H
 #define LWIP_HTTPD_STRUCTS_H
 
 #include "lwip/init.h"
 #include "lwip/apps/httpd.h"
+#include "lwip/altcp.h"
+#include "lwip/altcp_tcp.h"
+#include "lwip/apps/fs.h"
+#if HTTPD_ENABLE_HTTPS
+#include "lwip/altcp_tls.h"
+#endif
 
 #if LWIP_HTTPD_DYNAMIC_HEADERS
 
-/* The number of individual strings that comprise the headers sent before each
- * requested file.
- */
+/* The number of individual strings that comprise the headers sent before each requested file. */
 #define NUM_FILE_HDR_STRINGS 5
 #define HDR_STRINGS_IDX_HTTP_STATUS           0 /* e.g. "HTTP/1.0 200 OK\r\n" */
 #define HDR_STRINGS_IDX_SERVER_NAME           1 /* e.g. "Server: "HTTPD_SERVER_AGENT"\r\n" */
@@ -19,13 +27,11 @@
 /* The dynamically generated Content-Length buffer needs space for CRLF + NULL */
 #define LWIP_HTTPD_MAX_CONTENT_LEN_OFFSET 3
 #ifndef LWIP_HTTPD_MAX_CONTENT_LEN_SIZE
-/* The dynamically generated Content-Length buffer shall be able to work with
-   ~953 MB (9 digits) */
+/* The dynamically generated Content-Length buffer shall be able to work with ~953 MB (9 digits) */
 #define LWIP_HTTPD_MAX_CONTENT_LEN_SIZE   (9 + LWIP_HTTPD_MAX_CONTENT_LEN_OFFSET)
 #endif
 
-/** This struct is used for a list of HTTP header strings for various
- * filename extensions. */
+/** This struct is used for a list of HTTP header strings for various filename extensions. */
 typedef struct {
   const char *extension;
   const char *content_type;
@@ -163,3 +169,5 @@ char *http_get_key_value (http_request_t *request, char *key, char *value, uint3
 void httpd_register_uri_handlers(const httpd_uri_handler_t *httpd_uri_handlers, uint_fast8_t httpd_num_uri_handlers);
 
 #endif /* LWIP_HTTPD_STRUCTS_H */
+
+#endif // HTTP_ENABLE

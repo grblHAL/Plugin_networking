@@ -93,19 +93,15 @@
  * the 'g_psHTTPHeaders' list.
  */
 
+#include "httpd_structs.h"
+
+#if HTTP_ENABLE &&  LWIP_TCP && LWIP_CALLBACK_API
 
 #include "lwip/init.h"
 #include "lwip/debug.h"
 #include "lwip/stats.h"
-#include "lwip/apps/fs.h"
-#include "httpd_structs.h"
 #include "lwip/def.h"
 
-#include "lwip/altcp.h"
-#include "lwip/altcp_tcp.h"
-#if HTTPD_ENABLE_HTTPS
-#include "lwip/altcp_tls.h"
-#endif
 #ifdef LWIP_HOOK_FILENAME
 #include LWIP_HOOK_FILENAME
 #endif
@@ -129,8 +125,6 @@
 #if LWIP_HTTPD_SUPPORT_V09
 #error HTTP v0.9 support has been removed!
 #endif
-
-#if LWIP_TCP && LWIP_CALLBACK_API
 
 /** Minimum length for a valid HTTP/0.9 request: "GET /\r\n" -> 7 bytes */
 #define MIN_REQ_LEN   7
@@ -158,11 +152,13 @@
 #define HTTP_IS_HDR_VOLATILE(hs, ptr)   0
 #endif
 
-/* Return values for http_send_*() */
-#define HTTP_DATA_TO_SEND_FREED    3
-#define HTTP_DATA_TO_SEND_BREAK    2
-#define HTTP_DATA_TO_SEND_CONTINUE 1
-#define HTTP_NO_DATA_TO_SEND       0
+/* Return type and values for http_send_*() */
+typedef enum {
+    HTTPSend_NoData = 0,
+    HTTPSend_Continue,
+    HTTPSend_Break,
+    HTTPSend_Freed
+} http_send_state_t;
 
 #ifdef LWIP_DEBUGF
 /*
@@ -248,14 +244,14 @@ LWIP_MEMPOOL_DECLARE(HTTPD_STATE,     MEMP_NUM_PARALLEL_HTTPD_CONNS,     sizeof(
 #define HTTP_FREE_HTTP_STATE(x) mem_free(x)
 #endif /* HTTPD_USE_MEM_POOL */
 
-static err_t http_close_conn(struct altcp_pcb *pcb, struct http_state *hs);
-static err_t http_close_or_abort_conn(struct altcp_pcb *pcb, struct http_state *hs, u8_t abort_conn);
-static err_t http_find_file(struct http_state *hs, const char *uri);
-static err_t http_init_file(struct http_state *hs, struct fs_file *file, const char *uri, char *params);
-static err_t http_poll(void *arg, struct altcp_pcb *pcb);
-static u8_t http_check_eof(struct altcp_pcb *pcb, struct http_state *hs);
+static err_t http_close_conn (struct altcp_pcb *pcb, struct http_state *hs);
+static err_t http_close_or_abort_conn (struct altcp_pcb *pcb, struct http_state *hs, u8_t abort_conn);
+static err_t http_find_file (struct http_state *hs, const char *uri);
+static err_t http_init_file (struct http_state *hs, struct fs_file *file, const char *uri, char *params);
+static err_t http_poll (void *arg, struct altcp_pcb *pcb);
+static bool http_check_eof (struct altcp_pcb *pcb, struct http_state *hs);
 #if LWIP_HTTPD_FS_ASYNC_READ
-static void http_continue(void *connection);
+static void http_continue (void *connection);
 #endif /* LWIP_HTTPD_FS_ASYNC_READ */
 
 /* URI handler information */
@@ -275,52 +271,52 @@ static void http_add_connection (struct http_state *hs)
     http_connections = hs;
 }
 
-static void
-http_remove_connection(struct http_state *hs)
+static void http_remove_connection (struct http_state *hs)
 {
-  /* take the connection off the list */
-  if (http_connections) {
-    if (http_connections == hs) {
-      http_connections = hs->next;
-    } else {
-      struct http_state *last;
-      for (last = http_connections; last->next != NULL; last = last->next) {
-        if (last->next == hs) {
-          last->next = hs->next;
-          break;
+    /* take the connection off the list */
+    if (http_connections) {
+        if (http_connections == hs) {
+            http_connections = hs->next;
+        } else {
+            struct http_state *last;
+            for (last = http_connections; last->next != NULL; last = last->next) {
+                if (last->next == hs) {
+                    last->next = hs->next;
+                    break;
+                }
+            }
         }
-      }
     }
-  }
 }
 
-static void
-http_kill_oldest_connection(u8_t ssi_required)
+static voidhttp_kill_oldest_connection (u8_t ssi_required)
 {
-  struct http_state *hs = http_connections;
-  struct http_state *hs_free_next = NULL;
-  while (hs && hs->next) {
+    struct http_state *hs = http_connections;
+    struct http_state *hs_free_next = NULL;
+
+    while (hs && hs->next) {
 #if LWIP_HTTPD_SSI
-    if (ssi_required) {
-      if (hs->next->ssi != NULL) {
-        hs_free_next = hs;
-      }
-    } else
-#else /* LWIP_HTTPD_SSI */
-    LWIP_UNUSED_ARG(ssi_required);
+        if (ssi_required) {
+            if (hs->next->ssi != NULL) {
+            hs_free_next = hs;
+            }
+        } else
+ #else /* LWIP_HTTPD_SSI */
+            LWIP_UNUSED_ARG(ssi_required);
 #endif /* LWIP_HTTPD_SSI */
-    {
-      hs_free_next = hs;
+        {
+            hs_free_next = hs;
+        }
+        LWIP_ASSERT("broken list", hs != hs->next);
+        hs = hs->next;
     }
-    LWIP_ASSERT("broken list", hs != hs->next);
-    hs = hs->next;
-  }
-  if (hs_free_next != NULL) {
-    LWIP_ASSERT("hs_free_next->next != NULL", hs_free_next->next != NULL);
-    LWIP_ASSERT("hs_free_next->next->pcb != NULL", hs_free_next->next->pcb != NULL);
-    /* send RST when killing a connection because of memory shortage */
-    http_close_or_abort_conn(hs_free_next->next->pcb, hs_free_next->next, 1); /* this also unlinks the http_state from the list */
-  }
+
+    if (hs_free_next != NULL) {
+        LWIP_ASSERT("hs_free_next->next != NULL", hs_free_next->next != NULL);
+        LWIP_ASSERT("hs_free_next->next->pcb != NULL", hs_free_next->next->pcb != NULL);
+        /* send RST when killing a connection because of memory shortage */
+        http_close_or_abort_conn(hs_free_next->next->pcb, hs_free_next->next, 1); /* this also unlinks the http_state from the list */
+    }
 }
 #else /* LWIP_HTTPD_KILL_OLD_ON_CONNECTIONS_EXCEEDED */
 
@@ -448,9 +444,8 @@ static err_t http_write (struct altcp_pcb *pcb, const void *ptr, u16_t *length, 
     } while ((err == ERR_MEM) && (len > 1));
 
     if (err == ERR_OK) {
-    LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("Sent %d bytes\n", len));
-    *length = len;
-
+        LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("Sent %d bytes\n", len));
+        *length = len;
     } else {
         LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("Send failed with err %d (\"%s\")\n", err, lwip_strerr(err)));
         *length = 0;
@@ -560,9 +555,8 @@ static void http_eof (struct altcp_pcb *pcb, struct http_state *hs)
  */
 static int extract_uri_parameters (struct http_state *hs, char *params)
 {
-    char *pair;
-    char *equals;
-    int loop;
+    char *pair, *equals;
+    uint_fast8_t loop;
 
     LWIP_UNUSED_ARG(hs);
 
@@ -583,17 +577,13 @@ static int extract_uri_parameters (struct http_state *hs, char *params)
         equals = pair;
 
         /* Find the start of the next name=value pair and replace the delimiter
-        * with a 0 to terminate the previous pair string. */
-        pair = strchr(pair, '&');
-        if (pair) {
-            *pair = '\0';
-            pair++;
-        } else {
-            /* We didn't find a new parameter so find the end of the URI and
-            * replace the space with a '\0' */
-            pair = strchr(equals, ' ');
-            if (pair)
-            *pair = '\0';
+         * with a 0 to terminate the previous pair string. */
+        if ((pair = strchr(pair, '&')))
+            *pair++ = '\0';
+        else {
+            /* We didn't find a new parameter so find the end of the URI and replace the space with a '\0' */
+            if ((pair = strchr(equals, ' ')))
+                *pair = '\0';
 
             /* Revert to NULL so that we exit the loop as expected. */
             pair = NULL;
@@ -713,20 +703,11 @@ static void get_http_headers (struct http_state *hs, const char *uri)
 /* Add content-length header? */
 static void get_http_content_length (struct http_state *hs)
 {
-    u8_t add_content_len = 0;
+    bool add_content_len = false;
 
     LWIP_ASSERT("already been here?", hs->hdrs[HDR_STRINGS_IDX_CONTENT_LEN_KEEPALIVE] == NULL);
 
-    add_content_len = 0;
-#if LWIP_HTTPD_SSI
-    if (hs->ssi == NULL) /* @todo: get maximum file length from SSI */
-#endif /* LWIP_HTTPD_SSI */
-    {
-        if ((hs->handle != NULL) && (hs->handle->flags & FS_FILE_FLAGS_HEADER_PERSISTENT))
-            add_content_len = 1;
-    }
-
-    if (add_content_len) {
+    if ((add_content_len = (hs->handle != NULL) && (hs->handle->flags & FS_FILE_FLAGS_HEADER_PERSISTENT))) {
         size_t len;
         lwip_itoa(hs->hdr_content_len, (size_t)LWIP_HTTPD_MAX_CONTENT_LEN_SIZE, hs->handle->len);
         len = strlen(hs->hdr_content_len);
@@ -734,7 +715,7 @@ static void get_http_content_length (struct http_state *hs)
             SMEMCPY(&hs->hdr_content_len[len], CRLF, 3);
             hs->hdrs[HDR_STRINGS_IDX_CONTENT_LEN_NR] = hs->hdr_content_len;
         } else
-            add_content_len = 0;
+            add_content_len = false;
     }
 
 #if LWIP_HTTPD_SUPPORT_11_KEEPALIVE
@@ -752,17 +733,17 @@ static void get_http_content_length (struct http_state *hs)
 
 /** Sub-function of http_send(): send dynamic headers
  *
- * @returns: - HTTP_NO_DATA_TO_SEND: no new data has been enqueued
- *           - HTTP_DATA_TO_SEND_CONTINUE: continue with sending HTTP body
- *           - HTTP_DATA_TO_SEND_BREAK: data has been enqueued, headers pending,
+ * @returns: - HTTPSend_NoData: no new data has been enqueued
+ *           - HTTPSend_Continue: continue with sending HTTP body
+ *           - HTTPSend_Break: data has been enqueued, headers pending,
  *                                      so don't send HTTP body yet
- *           - HTTP_DATA_TO_SEND_FREED: http_state and pcb are already freed
+ *           - HTTPSend_Freed: http_state and pcb are already freed
  */
-static u8_t http_send_headers(struct altcp_pcb *pcb, struct http_state *hs)
+static http_send_state_t http_send_headers(struct altcp_pcb *pcb, struct http_state *hs)
 {
     err_t err;
     u16_t len, hdrlen, sendlen;
-    u8_t data_to_send = HTTP_NO_DATA_TO_SEND;
+    http_send_state_t data_to_send = HTTPSend_NoData;
 
     if (hs->hdrs[HDR_STRINGS_IDX_CONTENT_LEN_KEEPALIVE] == NULL) {
         /* set up "content-length" and "connection:" headers */
@@ -799,7 +780,7 @@ static u8_t http_send_headers(struct altcp_pcb *pcb, struct http_state *hs)
 
         if (((err = http_write(pcb, ptr, &sendlen, apiflags)) == ERR_OK) && (old_sendlen != sendlen)) {
             /* Remember that we added some more data to be transmitted. */
-            data_to_send = HTTP_DATA_TO_SEND_CONTINUE;
+            data_to_send = HTTPSend_Continue;
         } else if (err != ERR_OK) {
             /* special case: http_write does not try to send 1 byte */
             sendlen = 0;
@@ -826,10 +807,10 @@ static u8_t http_send_headers(struct altcp_pcb *pcb, struct http_state *hs)
         * instead of waiting for ACK from remote side to continue
         * (which would happen when sending files from async read). */
         if (http_check_eof(pcb, hs)) {
-            data_to_send = HTTP_DATA_TO_SEND_BREAK;
+            data_to_send = HTTPSend_Break;
         } else {
             /* At this point, for non-keepalive connections, hs is deallocated and pcb is closed. */
-            return HTTP_DATA_TO_SEND_FREED;
+            return HTTPSend_Freed;
         }
     }
 
@@ -839,7 +820,7 @@ static u8_t http_send_headers(struct altcp_pcb *pcb, struct http_state *hs)
     * to try to send some file data too. */
     if ((hs->hdr_index < NUM_FILE_HDR_STRINGS) || !hs->file) {
         LWIP_DEBUGF(HTTPD_DEBUG, ("tcp_output\n"));
-        return HTTP_DATA_TO_SEND_BREAK;
+        return HTTPSend_Break;
     }
 
     return data_to_send;
@@ -849,10 +830,10 @@ static u8_t http_send_headers(struct altcp_pcb *pcb, struct http_state *hs)
 /** Sub-function of http_send(): end-of-file (or block) is reached,
  * either close the file or read the next block (if supported).
  *
- * @returns: 0 if the file is finished or no data has been read
- *           1 if the file is not finished and data has been read
+ * @returns: false if the file is finished or no data has been read
+ *           true if the file is not finished and data has been read
  */
-static u8_t http_check_eof (struct altcp_pcb *pcb, struct http_state *hs)
+static bool http_check_eof (struct altcp_pcb *pcb, struct http_state *hs)
 {
     int bytes_left;
 #if LWIP_HTTPD_DYNAMIC_FILE_READ
@@ -866,14 +847,14 @@ static u8_t http_check_eof (struct altcp_pcb *pcb, struct http_state *hs)
     if (hs->handle == NULL) {
         /* No - close the connection. */
         http_eof(pcb, hs);
-        return 0;
+        return false;
     }
 
     if ((bytes_left = fs_bytes_left(hs->handle)) <= 0) {
         /* We reached the end of the file so this request is done. */
         LWIP_DEBUGF(HTTPD_DEBUG, ("End of file.\n"));
         http_eof(pcb, hs);
-        return 0;
+        return false;
     }
 
 #if LWIP_HTTPD_DYNAMIC_FILE_READ
@@ -905,7 +886,7 @@ static u8_t http_check_eof (struct altcp_pcb *pcb, struct http_state *hs)
         /* Did we get a send buffer? If not, return immediately. */
         if (hs->buf == NULL) {
             LWIP_DEBUGF(HTTPD_DEBUG, ("No buff\n"));
-            return 0;
+            return false;
         }
     }
 
@@ -920,14 +901,14 @@ static u8_t http_check_eof (struct altcp_pcb *pcb, struct http_state *hs)
     if (count < 0) {
         if (count == FS_READ_DELAYED) {
             /* Delayed read, wait for FS to unblock us */
-            return 0;
+            return false;
         }
         /* We reached the end of the file so this request is done.
         * @todo: close here for HTTP/1.1 when reading file fails */
         LWIP_DEBUGF(HTTPD_DEBUG, ("End of file.\n"));
         http_eof(pcb, hs);
 
-        return 0;
+        return false;
     }
 
     /* Set up to send the block of data we just read */
@@ -944,25 +925,24 @@ static u8_t http_check_eof (struct altcp_pcb *pcb, struct http_state *hs)
     LWIP_ASSERT("SSI and DYNAMIC_HEADERS turned off but eof not reached", 0);
     #endif /* LWIP_HTTPD_SSI || LWIP_HTTPD_DYNAMIC_HEADERS */
 
-    return 1;
+    return true;
 }
 
 /** Sub-function of http_send(): This is the normal send-routine for non-ssi files
  *
- * @returns: - 1: data has been written (so call tcp_ouput)
- *           - 0: no data has been written (no need to call tcp_output)
+ * @returns: - HTTPSend_Continue: data has been written (so call tcp_ouput)
+ *           - HTTPSend_NoData: no data has been written (no need to call tcp_output)
  */
-static u8_t http_send_data_nonssi (struct altcp_pcb *pcb, struct http_state *hs)
+static http_send_state_t http_send_data_nonssi (struct altcp_pcb *pcb, struct http_state *hs)
 {
     u16_t len;
-    u8_t data_to_send = 0;
+    http_send_state_t data_to_send;
 
     /* We are not processing an SHTML file so no tag checking is necessary.
     * Just send the data as we received it from the file. */
     len = (u16_t)LWIP_MIN(hs->left, 0xffff);
 
-    if (http_write(pcb, hs->file, &len, HTTP_IS_DATA_VOLATILE(hs)) == ERR_OK) {
-        data_to_send = 1;
+    if ((data_to_send = (http_write(pcb, hs->file, &len, HTTP_IS_DATA_VOLATILE(hs)) == ERR_OK) ? HTTPSend_Continue : HTTPSend_NoData)) {
         hs->file += len;
         hs->left -= len;
     }
@@ -976,26 +956,26 @@ static u8_t http_send_data_nonssi (struct altcp_pcb *pcb, struct http_state *hs)
  * @param pcb the pcb to send data
  * @param hs connection state
  */
-static u8_t http_send(struct altcp_pcb *pcb, struct http_state *hs)
+static http_send_state_t http_send (struct altcp_pcb *pcb, struct http_state *hs)
 {
-    u8_t data_to_send = HTTP_NO_DATA_TO_SEND;
+    http_send_state_t data_to_send = HTTPSend_NoData;
 
     LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("http_send: pcb=%p hs=%p left=%d\n", (void *)pcb, (void *)hs, hs != NULL ? (int)hs->left : 0));
 
 #if LWIP_HTTPD_SUPPORT_POST && LWIP_HTTPD_POST_MANUAL_WND
     if (hs->unrecved_bytes != 0)
-        return 0;
+        return HTTPSend_NoData;
 #endif /* LWIP_HTTPD_SUPPORT_POST && LWIP_HTTPD_POST_MANUAL_WND */
 
     /* If we were passed a NULL state structure pointer, ignore the call. */
     if (hs == NULL)
-        return 0;
+        return HTTPSend_NoData;
 
 #if LWIP_HTTPD_FS_ASYNC_READ
     /* Check if we are allowed to read from this file.
     (e.g. SSI might want to delay sending until data is available) */
     if (!fs_is_file_ready(hs->handle, http_continue, hs))
-        return 0;
+        return HTTPSend_NoData;
 
 #endif /* LWIP_HTTPD_FS_ASYNC_READ */
 
@@ -1003,7 +983,7 @@ static u8_t http_send(struct altcp_pcb *pcb, struct http_state *hs)
     /* Do we have any more header data to send for this file? */
     if (hs->hdr_index < NUM_FILE_HDR_STRINGS) {
         data_to_send = http_send_headers(pcb, hs);
-        if ((data_to_send == HTTP_DATA_TO_SEND_FREED) || ((data_to_send != HTTP_DATA_TO_SEND_CONTINUE) && (hs->hdr_index < NUM_FILE_HDR_STRINGS)))
+        if ((data_to_send == HTTPSend_Freed) || ((data_to_send != HTTPSend_Continue) && (hs->hdr_index < NUM_FILE_HDR_STRINGS)))
             return data_to_send;
     }
 #endif /* LWIP_HTTPD_DYNAMIC_HEADERS */
@@ -1011,7 +991,7 @@ static u8_t http_send(struct altcp_pcb *pcb, struct http_state *hs)
     /* Have we run out of file data to send? If so, we need to read the next
     * block from the file. */
     if (hs->left == 0 && !http_check_eof(pcb, hs))
-        return 0;
+        return HTTPSend_NoData;
 
     data_to_send = http_send_data_nonssi(pcb, hs);
 
@@ -1021,7 +1001,7 @@ static u8_t http_send(struct altcp_pcb *pcb, struct http_state *hs)
         LWIP_DEBUGF(HTTPD_DEBUG, ("End of file.\n"));
         http_eof(pcb, hs);
 
-        return 0;
+        return HTTPSend_NoData;
     }
 
     LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("send_data end.\n"));
