@@ -36,7 +36,11 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 */
 
+#ifdef ARDUINO
+#include "../driver.h"
+#else
 #include "driver.h"
+#endif
 
 #if HTTP_ENABLE
 
@@ -50,7 +54,7 @@ static struct fs_file v_file = {0};
 
 static bool vf_write (void)
 {
-    char *data = realloc((void *)v_file.data, txbuf.length);
+    char *data = realloc((void *)v_file.data, v_file.len + txbuf.length);
 
     if(data == NULL) {
 
@@ -78,14 +82,17 @@ static void fs_write (const char *s)
 {
     size_t length = strlen(s);
 
-    if(length && (length + txbuf.length) > txbuf.max_length) {
+    if(length == 0)
+        return;
+
+    if(txbuf.length && (txbuf.length + length) > txbuf.max_length) {
         if(!vf_write())
             return;
     }
 
     while(length > txbuf.max_length) {
         txbuf.length = txbuf.max_length;
-        memcpy(txbuf.s, s, txbuf.max_length);
+        memcpy(txbuf.data, s, txbuf.length);
         if(!vf_write())
             return;
         length -= txbuf.max_length;
@@ -97,12 +104,6 @@ static void fs_write (const char *s)
         txbuf.length += length;
         txbuf.s += length;
     }
-/*
-    if(s[length - 1] == ASCII_LF) {
-        if(!vf_write())
-            return;
-    }
-    */
 }
 
 struct fs_file *fs_create (void)
