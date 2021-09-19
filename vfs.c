@@ -34,7 +34,7 @@
 
 #include "vfs.h"
 
-#if FTP_ENABLE
+#if FTP_ENABLE || HTTP_ENABLE
 
 #include <string.h>
 #include <stdlib.h>

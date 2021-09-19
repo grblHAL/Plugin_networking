@@ -1,7 +1,7 @@
 //
 // networking.h - some shared networking code
 //
-// v1.3 / 2021-06-08 / Io Engineering / Terje
+// v1.3 / 2021-09-19 / Io Engineering / Terje
 //
 
 /*
@@ -76,6 +76,10 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #if FTP_ENABLE
 #include "ftpd.h"
+#endif
+
+#if HTTP_ENABLE
+#include "httpd.h"
 #endif
 
 //*****************************************************************************

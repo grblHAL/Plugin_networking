@@ -71,18 +71,15 @@
 
 #if HTTP_ENABLE
 
-#include "lwip/init.h"
-#include "lwip/apps/httpd.h"
-#include "lwip/altcp.h"
-#include "lwip/altcp_tcp.h"
-#include "lwip/apps/fs.h"
-#if HTTPD_ENABLE_HTTPS
-#include "lwip/altcp_tls.h"
-#endif
+#include "httpd.h"
 
 #if LWIP_TCP && LWIP_CALLBACK_API
 
-#include "lwip/init.h"
+#include <string.h> /* memset */
+#include <stdlib.h> /* atoi */
+#include <stdio.h>
+#include <stdbool.h>
+
 #include "lwip/debug.h"
 #include "lwip/stats.h"
 #include "lwip/def.h"
@@ -94,25 +91,10 @@
 #include "lwip/sys.h"
 #endif /* LWIP_HTTPD_TIMING */
 
-#include "httpd.h"
 #include "strutils.h"
 #include "urldecode.h"
 
-#include <string.h> /* memset */
-#include <stdlib.h> /* atoi */
-#include <stdio.h>
-#include <stdbool.h>
-
 /**/
-
-#include "lwip/init.h"
-#include "httpd.h"
-#include "lwip/altcp.h"
-#include "lwip/altcp_tcp.h"
-#include "lwip/apps/fs.h"
-#if HTTPD_ENABLE_HTTPS
-#include "lwip/altcp_tls.h"
-#endif
 
 #if LWIP_HTTPD_DYNAMIC_HEADERS
 
@@ -135,11 +117,11 @@ typedef struct {
   const char *content_type;
 } tHTTPHeader;
 
-
 #define HTTP_CONTENT_TYPE(contenttype) "Content-Type: "contenttype"\r\n"
 #define HTTP_CONTENT_TYPE_ENCODING(contenttype, encoding) "Content-Type: "contenttype"\r\nContent-Encoding: "encoding"\r\n"
 
-#define HTTP_HDR_HTML           HTTP_CONTENT_TYPE("text/html")
+#define HTTP_HDR_HTML           HTTP_CONTENT_TYPE("text/html; charset=UTF-8")
+#define HTTP_HDR_HTML_GZ        HTTP_CONTENT_TYPE_ENCODING("text/html; charset=UTF-8", "gzip")
 #define HTTP_HDR_SSI            HTTP_CONTENT_TYPE("text/html\r\nExpires: Fri, 10 Apr 2008 14:00:00 GMT\r\nPragma: no-cache")
 #define HTTP_HDR_GIF            HTTP_CONTENT_TYPE("image/gif")
 #define HTTP_HDR_PNG            HTTP_CONTENT_TYPE("image/png")
@@ -167,6 +149,8 @@ typedef struct {
  * and subtypes) */
 static const tHTTPHeader g_psHTTPHeaders[] = {
   { "html", HTTP_HDR_HTML},
+  { "html.gz", HTTP_HDR_HTML_GZ},
+  { "json", HTTP_HDR_JSON},
   { "htm",  HTTP_HDR_HTML},
   { "gif",  HTTP_HDR_GIF},
   { "png",  HTTP_HDR_PNG},
@@ -182,7 +166,7 @@ static const tHTTPHeader g_psHTTPHeaders[] = {
   { "xml",  HTTP_HDR_XML},
   { "xsl",  HTTP_HDR_XML},
   { "pdf",  HTTP_HDR_PDF},
-  { "json", HTTP_HDR_JSON}
+  { "gz", HTTP_HDR_GZIP}
 #ifdef HTTPD_ADDITIONAL_CONTENT_TYPES
   /* If you need to add content types not listed here:
    * #define HTTPD_ADDITIONAL_CONTENT_TYPES {"ct1", HTTP_CONTENT_TYPE("text/ct1")}, {"exe", HTTP_CONTENT_TYPE("application/exe")}
@@ -343,12 +327,9 @@ typedef struct {
 } default_filename;
 
 static const default_filename httpd_default_filenames[] = {
-  {"/index.shtml", 1 },
-  {"/index.ssi",   1 },
-  {"/index.shtm",  1 },
   {"/index.html",  0 },
-  {"/index.htm",   0 },
-  {"/index.html.gz",   0 }
+  {"/index.html.gz",   0 },
+  {"/index.htm",   0 }
 };
 
 static const char *msg200 = "HTTP/1.1 200 OK" CRLF;
@@ -881,35 +862,29 @@ static void set_content_type (struct http_state *hs, const char *uri)
 {
     if(!is_response_header_set(hs, "Content-Type") && hs->response_hdr.next < NUM_FILE_HDR_STRINGS) {
 
-        size_t content_type;
-        char *ext, *vars;
+        char *end, *ext;
+        bool ext_found = false;
+        uint_fast8_t content_type = NUM_HTTP_HEADERS;
 
-        /* Determine if the URI has any variables and, if so, temporarily remove them. */
-        if ((vars = strchr(uri, '?')))
-            *vars = '\0';
+        if (!(end = strchr(uri, '?')))
+            end = strchr(uri, '\0');
 
-        /* Get a pointer to the file extension.  We find this by looking for the
-           last occurrence of "." in the filename passed. */
-        if ((ext = strrchr(uri, '.'))) {
-            ext++;
-        /* Now determine the content type and add the relevant header for that. */
+        ext_found = (ext = strchr(uri, '.')) && ext < end;
+
+        if(end != uri) {
             for (content_type = 0; content_type < NUM_HTTP_HEADERS; content_type++) {
-                /* Have we found a matching extension? */
-                if (!lwip_stricmp(g_psHTTPHeaders[content_type].extension, ext))
+                size_t len = strlen(g_psHTTPHeaders[content_type].extension);
+                ext = end - len;
+                if(ext > uri && *(ext - 1) == '.'  && !lwip_strnicmp(g_psHTTPHeaders[content_type].extension, ext, len))
                     break;
             }
-        } else
-            content_type = NUM_HTTP_HEADERS;
-
-        /* Reinstate the parameter marker if there was one in the original URI. */
-        if (vars)
-            *vars = '?';
+        }
 
         /* Did we find a matching extension? */
         if (content_type < NUM_HTTP_HEADERS) {
             /* yes, store it */
             hs->response_hdr.string[hs->response_hdr.next++] = g_psHTTPHeaders[content_type].content_type;
-        } else if (!ext) {
+        } else if (!ext_found) {
             /* no, no extension found -> use binary transfer to prevent the browser adding '.txt' on save */
             hs->response_hdr.string[hs->response_hdr.next++] = HTTP_HDR_APP;
         } else {
@@ -1500,7 +1475,7 @@ http_continue(void *connection)
  */
 static err_t http_parse_request (struct pbuf *inp, struct http_state *hs, struct altcp_pcb *pcb)
 {
-    char *data, *crlf;
+    char *data;
     u16_t data_len, clen;
     struct pbuf *p = inp;
 
@@ -1542,106 +1517,102 @@ static err_t http_parse_request (struct pbuf *inp, struct http_state *hs, struct
         }
     }
 
-    /* received enough data for minimal request and  CRLF before parsing anything? */
-    if (data_len >= MIN_REQ_LEN && (crlf = lwip_strnstr(data, CRLF, data_len))) {
+    /* received enough data for minimal request and at least one CRLF? */
+    if (data_len >= MIN_REQ_LEN && lwip_strnstr(data, CRLF, data_len)) {
 
-        /* wait for CRLF before parsing anything */
-        if ((crlf = lwip_strnstr(data, CRLF, data_len)) != NULL) {
-            char *sp1, *sp2;
-            u16_t left_len, uri_len;
-            LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("CRLF received, parsing request\n"));
+        char *sp1, *sp2;
+        u16_t left_len, uri_len;
+        LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("CRLF received, parsing request\n"));
 
-            /* parse method */
-            int32_t method = -1;
-            if((sp1 = strchr(data, ' '))) {
-                *sp1 = '\0';
-                method = strlookup(data, HTTP_METHODS, ',');
-                if(method >= 0)
-                    hs->method = (http_method_t)method;
-            }
+        /* parse method */
+        int32_t method = -1;
+        if((sp1 = strchr(data, ' '))) {
+            *sp1 = '\0';
+            method = strlookup(data, HTTP_METHODS, ',');
+            if(method >= 0)
+                hs->method = (http_method_t)method;
+        }
 
-            if ((http_method_t)method == HTTP_Get) {
-                /* received GET request */
-                LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("Received GET request\"\n"));
-            } else if ((http_method_t)method == HTTP_Post) {
-                /* received POST request */
-                LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("Received POST request\n"));
-            } else {
-                /* unsupported method! */
-                LWIP_DEBUGF(HTTPD_DEBUG, ("Unsupported request method (not implemented): \"%s\"\n", data));
-                return http_find_error_file(hs, 501);
-            }
+        if ((http_method_t)method == HTTP_Get) {
+            /* received GET request */
+            LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("Received GET request\"\n"));
+        } else if ((http_method_t)method == HTTP_Post) {
+            /* received POST request */
+            LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("Received POST request\n"));
+        } else {
+            /* unsupported method! */
+            LWIP_DEBUGF(HTTPD_DEBUG, ("Unsupported request method (not implemented): \"%s\"\n", data));
+            return http_find_error_file(hs, 501);
+        }
 
-            *sp1 = ' ';
+        *sp1 = ' ';
 
-            /* if we come here, method is OK, parse URI */
-            left_len = (u16_t)(data_len - ((sp1 + 1) - data));
-            sp2 = lwip_strnstr(sp1 + 1, " ", left_len);
+        /* if we come here, method is OK, parse URI */
+        left_len = (u16_t)(data_len - ((sp1 + 1) - data));
+        sp2 = lwip_strnstr(sp1 + 1, " ", left_len);
 
-            uri_len = (u16_t)(sp2 - (sp1 + 1));
-            if ((sp2 != 0) && (sp2 > sp1)) {
-                char *crlfcrlf;
-                /* wait for CRLFCRLF (indicating end of HTTP headers) before parsing anything */
-                if ((crlfcrlf = lwip_strnstr(data, CRLF CRLF, data_len)) != NULL) {
-                    char *uri = sp1 + 1;
+        uri_len = (u16_t)(sp2 - (sp1 + 1));
+        if ((sp2 != 0) && (sp2 > sp1)) {
+            char *crlfcrlf;
+            /* wait for CRLFCRLF (indicating end of HTTP headers) before parsing anything */
+            if ((crlfcrlf = lwip_strnstr(data, CRLF CRLF, data_len)) != NULL) {
+                char *uri = sp1 + 1;
 #if LWIP_HTTPD_SUPPORT_11_KEEPALIVE
-                /* This is HTTP/1.0 compatible: for strict 1.1, a connection
-                   would always be persistent unless "close" was specified. */
-                    hs->keepalive = ((lwip_strnstr(data, HTTP11_CONNECTIONKEEPALIVE, data_len) ||
-                                       lwip_strnstr(data, HTTP11_CONNECTIONKEEPALIVE2, data_len)));
+            /* This is HTTP/1.0 compatible: for strict 1.1, a connection
+               would always be persistent unless "close" was specified. */
+                hs->keepalive = ((lwip_strnstr(data, HTTP11_CONNECTIONKEEPALIVE, data_len) ||
+                                   lwip_strnstr(data, HTTP11_CONNECTIONKEEPALIVE2, data_len)));
 #endif /* LWIP_HTTPD_SUPPORT_11_KEEPALIVE */
-                    /* null-terminate the METHOD (pbuf is freed anyway when returning) */
-                    *sp1 = 0;
-                    uri[uri_len] = '\0';
-                    LWIP_DEBUGF(HTTPD_DEBUG, ("Received \"%s\" request for URI: \"%s\"\n", data, uri));
+                /* null-terminate the METHOD (pbuf is freed anyway when returning) */
+                *sp1 = 0;
+                uri[uri_len] = '\0';
+                LWIP_DEBUGF(HTTPD_DEBUG, ("Received \"%s\" request for URI: \"%s\"\n", data, uri));
 
-                    hs->hdr = sp2 + 1;
-                    hs->hdr_len = crlfcrlf - data + 4;
+                hs->hdr = sp2 + 1;
+                hs->hdr_len = crlfcrlf - data + 4;
 
 #if LWIP_HTTPD_DYNAMIC_HEADERS
-                    memset(&hs->response_hdr, 0, sizeof(http_headers_t));
-                    hs->response_hdr.string[HDR_STRINGS_IDX_SERVER_NAME] = agent;   // In all cases, the second header we send is the server identification so set it here.
-                    hs->response_hdr.index = NUM_FILE_HDR_STRINGS;                  // Indicate that the headers are not yet valid
-                    hs->response_hdr.next = HDR_STRINGS_IDX_CONTENT_NEXT;
+                memset(&hs->response_hdr, 0, sizeof(http_headers_t));
+                hs->response_hdr.string[HDR_STRINGS_IDX_SERVER_NAME] = agent;   // In all cases, the second header we send is the server identification so set it here.
+                hs->response_hdr.index = NUM_FILE_HDR_STRINGS;                  // Indicate that the headers are not yet valid
+                hs->response_hdr.next = HDR_STRINGS_IDX_CONTENT_NEXT;
 #endif /* LWIP_HTTPD_DYNAMIC_HEADERS */
 
-                    if (hs->method == HTTP_Post) {
+                if (hs->method == HTTP_Post) {
 
-                        int content_len = -1;
-                        clen = http_get_header_value_len(&hs->request, "Content-Length");
+                    int content_len = -1;
+                    clen = http_get_header_value_len(&hs->request, "Content-Length");
 
-                        if(clen >= 0 && clen < HTTP_HDR_CONTENT_LEN_DIGIT_MAX_LEN) {
+                    if(clen >= 0 && clen < HTTP_HDR_CONTENT_LEN_DIGIT_MAX_LEN) {
 
-                            char clens[HTTP_HDR_CONTENT_LEN_DIGIT_MAX_LEN];
-                            http_get_header_value(&hs->request, "Content-Length", clens, clen);
-                            content_len = atoi(clens); // use strtol? https://www.cplusplus.com/reference/cstdlib/strtol/
-                            if (content_len == 0) {
-                                /* if atoi returns 0 on error, fix this */
-                                if ((clens[0] != '0') || (clens[1] != '\r'))
-                                    content_len = -1;
-                            }
-                        }
-
-                        if(content_len >= 0) {  /* set the Content-Length to be received for this POST */
-#if LWIP_HTTPD_POST_MANUAL_WND
-                            hs->no_auto_wnd = 1;
-#endif /* LWIP_HTTPD_POST_MANUAL_WND */
-
-                            hs->post_content_len_left = (u32_t)content_len;
-                        } else {
-                            LWIP_DEBUGF(HTTPD_DEBUG, ("POST received invalid Content-Length: %s\n", content_len_num));
-                            goto badrequest;
+                        char clens[HTTP_HDR_CONTENT_LEN_DIGIT_MAX_LEN];
+                        http_get_header_value(&hs->request, "Content-Length", clens, clen);
+                        content_len = atoi(clens); // use strtol? https://www.cplusplus.com/reference/cstdlib/strtol/
+                        if (content_len == 0) {
+                            /* if atoi returns 0 on error, fix this */
+                            if ((clens[0] != '0') || (clens[1] != '\r'))
+                                content_len = -1;
                         }
                     }
 
-                    return http_process_request(hs, uri);
+                    if(content_len >= 0) {  /* set the Content-Length to be received for this POST */
+#if LWIP_HTTPD_POST_MANUAL_WND
+                        hs->no_auto_wnd = 1;
+#endif /* LWIP_HTTPD_POST_MANUAL_WND */
+
+                        hs->post_content_len_left = (u32_t)content_len;
+                    } else {
+                        LWIP_DEBUGF(HTTPD_DEBUG, ("POST received invalid Content-Length: %s\n", content_len_num));
+                        goto badrequest;
+                    }
                 }
-            } else {
-                LWIP_DEBUGF(HTTPD_DEBUG, ("invalid URI\n"));
+
+                return http_process_request(hs, uri);
             }
+        } else {
+            LWIP_DEBUGF(HTTPD_DEBUG, ("invalid URI\n"));
         }
     }
-
 
     clen = pbuf_clen(hs->req);
     if ((hs->req->tot_len <= LWIP_HTTPD_REQ_BUFSIZE) && (clen <= LWIP_HTTPD_REQ_QUEUELEN)) {
@@ -1711,7 +1682,7 @@ static err_t http_process_request (struct http_state *hs, const char *uri)
     if (file == NULL) {
         /* No - we've been asked for a specific file. */
         /* First, isolate the base URI (without any parameters) */
-        if ((params = (char *)strchr(uri, '?'))) {
+        if ((params = strchr(uri, '?'))) {
             /* URI contains parameters. NULL-terminate the base URI */
             *params = '\0';
             params++;
@@ -1722,7 +1693,8 @@ static err_t http_process_request (struct http_state *hs, const char *uri)
         /* Does the base URI we have isolated correspond to a handler? */
         if (num_uri_handlers) {
 
-            for (uint_fast8_t i = 0; i < num_uri_handlers; i++) {
+            uint_fast8_t i;
+            for (i = 0; i < num_uri_handlers; i++) {
 
                 uint_fast8_t len = strlen(uri_handlers[i].uri);
                 match = !(uri_handlers[i].uri[len - 1] == '*' ? strncmp(uri, uri_handlers[i].uri, len - 1) : strcmp(uri, uri_handlers[i].uri));
@@ -1752,7 +1724,11 @@ static err_t http_process_request (struct http_state *hs, const char *uri)
 
                 if (q != NULL) {
                     /* hide the remaining HTTP header */
+#if LWIP_VERSION_MAJOR > 1 && LWIP_VERSION_MINOR > 0
                     pbuf_remove_header(q, start_offset);
+#else
+                    pbuf_header(q, -(s16_t)start_offset);
+#endif
 #if LWIP_HTTPD_POST_MANUAL_WND
                     if (!post_auto_wnd) {
                         /* already tcp_recved() this data... */
@@ -2085,7 +2061,7 @@ static void httpd_init_pcb (struct altcp_pcb *pcb, u16_t port)
  * @ingroup httpd
  * Initialize the httpd: set up a listening PCB and bind it to the defined port
  */
-void httpd_init (void)
+void httpd_init (uint16_t port)
 {
     struct altcp_pcb *pcb;
 
@@ -2101,7 +2077,7 @@ void httpd_init (void)
 
     pcb = altcp_tcp_new_ip_type(IPADDR_TYPE_ANY);
     LWIP_ASSERT("httpd_init: tcp_new failed", pcb != NULL);
-    httpd_init_pcb(pcb, HTTPD_SERVER_PORT);
+    httpd_init_pcb(pcb, port);
 }
 
 #if HTTPD_ENABLE_HTTPS

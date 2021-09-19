@@ -34,7 +34,7 @@
 
 #include <stdio.h>
 #include <string.h>
-#include <sys/unistd.h>
+#include <stdio.h>
 
 #include "http_upload.h"
 #include "multipartparser.h"
@@ -51,10 +51,13 @@ static void do_cleanup (file_upload_t *upload)
         if(upload->to_fatfs) {
             f_close(upload->file.fatfs_handle);
             f_unlink(upload->filename);
-        } else {
+        }
+#ifdef STDIO_FS
+        else {
             fclose(upload->file.handle);
             unlink(upload->filename);
         }
+#endif
         upload->file.handle = NULL;
     }
 }
@@ -113,9 +116,11 @@ static void on_header_done (struct multipartparser *parser)
                     upload->state = Upload_Write;
                 else
                     upload->file.fatfs_handle = NULL;
-            } else if((upload->file.handle = fopen(upload->filename, "w")))
+            }
+#ifdef STDIO_FS
+              else if((upload->file.handle = fopen(upload->filename, "w")))
                 upload->state = Upload_Write;
-
+#endif
             upload->uploaded = 0;
         }
     }
@@ -193,7 +198,9 @@ static int on_part_end (struct multipartparser *parser)
                 f_close(upload->file.fatfs_handle);
                 upload->file.fatfs_handle = NULL;
             } else {
+#ifdef STDIO_FS
                 fclose(upload->file.handle);
+#endif
                 upload->file.handle = NULL;
             }
             break;
@@ -220,6 +227,12 @@ static int on_body_end (struct multipartparser *parser)
 
 bool http_upload_start (http_request_t *request, const char* boundary, bool to_fatfs)
 {
+
+#ifndef STDIO_FS
+    if(!to_fatfs)
+        return false;
+#endif
+
     if(sd_callbacks == NULL && (sd_callbacks = malloc(sizeof(struct multipartparser_callbacks)))) {
 
         multipartparser_callbacks_init(sd_callbacks);

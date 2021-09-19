@@ -147,7 +147,7 @@ err_t fs_open (struct fs_file *file, const char *name)
         if(*name == ':')
             strcpy(fname, name + 1);
         else {
-            strcpy(fname, "/www");
+            strcpy(fname, *name == '/' ? "/www" : "/www/");
             strcat(fname, name);
         }
 

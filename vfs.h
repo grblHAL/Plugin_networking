@@ -29,7 +29,7 @@
 
 #include "../sdcard/sdcard.h"
 
-#if FTP_ENABLE
+#if FTP_ENABLE || HTTP_ENABLE
 
 #include <stddef.h>
 #include <stdlib.h>

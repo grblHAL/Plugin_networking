@@ -39,7 +39,7 @@
  */
 
 /*
- * 2021-09-08: Modified by Terje Io for grblHAL networking
+ * 2021-14-08: Modified by Terje Io for grblHAL networking
  */
 
 #ifndef _HTTPD_H
@@ -47,7 +47,9 @@
 
 #include "lwip/init.h"
 #include "lwip/altcp.h"
+#if LWIP_ALTCP
 #include "lwip/altcp_tcp.h"
+#endif
 #include "lwip/apps/fs.h"
 #if HTTPD_ENABLE_HTTPS
 #include "lwip/altcp_tls.h"
@@ -56,6 +58,11 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+#ifdef LWIP_HTTPD_SUPPORT_POST
+#undef LWIP_HTTPD_SUPPORT_POST
+#endif
+#define LWIP_HTTPD_SUPPORT_POST 1
 
 typedef enum {
     HTTP_Get = 0,
@@ -96,7 +103,7 @@ void httpd_free_pbuf (http_request_t *request, struct pbuf *p);
 void httpd_post_data_recved(void *connection, u16_t recved_len);
 #endif /* LWIP_HTTPD_POST_MANUAL_WND */
 
-void httpd_init (void);
+void httpd_init (uint16_t port);
 
 #if HTTPD_ENABLE_HTTPS
 struct altcp_tls_config;
