@@ -35,6 +35,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdio.h>
+#ifdef STDIO_FS
+#include <sys/unistd.h>
+#endif
 
 #include "http_upload.h"
 #include "multipartparser.h"
@@ -43,6 +46,7 @@
 
 static struct multipartparser parser;
 static struct multipartparser_callbacks *sd_callbacks = NULL;
+static http_upload_filename_parsed_ptr on_filename_parsed;
 
 static void do_cleanup (file_upload_t *upload)
 {
@@ -94,11 +98,7 @@ static void on_header_done (struct multipartparser *parser)
                 upload->state = Upload_GetPath;
                 *upload->path = '\0';
             } else if((name = strstr(upload->header_value, "filename=\""))) {
-                if(!upload->to_fatfs)
-                    strcpy(upload->filename, "/spiffs");
-                else
-                    *upload->filename = '\0';
-                strcat(upload->filename, name + 10);
+                strcpy(upload->filename, name + 10);
                 upload->filename[strlen(upload->filename) - 1] = '\0';
                 if(*upload->size_str)
                     upload->size = atoi(upload->size_str);
@@ -109,6 +109,9 @@ static void on_header_done (struct multipartparser *parser)
         }
 
         if(*upload->filename && strstr(upload->header_name, "Content-Type")) {
+
+            if(on_filename_parsed)
+                on_filename_parsed(upload->filename);
 
             if(upload->to_fatfs) {
                 upload->file.fatfs_handle = &upload->fatfs_fd;
@@ -225,6 +228,11 @@ static int on_body_end (struct multipartparser *parser)
     return 0;
 }
 
+void http_upload_on_filename_parsed (http_upload_filename_parsed_ptr fn)
+{
+    on_filename_parsed = fn;
+}
+
 bool http_upload_start (http_request_t *request, const char* boundary, bool to_fatfs)
 {
 
@@ -250,13 +258,21 @@ bool http_upload_start (http_request_t *request, const char* boundary, bool to_f
     if(sd_callbacks) {
 
         multipartparser_init(&parser, boundary);
-
-        if((parser.data = request->private_data = malloc(sizeof(file_upload_t)))) {
+        if((parser.data = malloc(sizeof(file_upload_t)))) {
+#ifdef ESP_PLATFORM
+            request->free_ctx = cleanup;
+            request->sess_ctx = parser.data;
+#else
+            request->private_data = parser.data;
             request->on_request_completed = cleanup;
+#endif
             memset(parser.data, 0, sizeof(file_upload_t));
             ((file_upload_t *)parser.data)->to_fatfs = to_fatfs;
         }
+
     }
+
+    on_filename_parsed = NULL;
 
     return parser.data != NULL;
 }

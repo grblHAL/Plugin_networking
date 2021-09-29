@@ -26,8 +26,16 @@
 
 #include <stdlib.h>
 
+#ifdef ESP_PLATFORM
+#include <esp_http_server.h>
+#include <esp_vfs_fat.h>
+typedef httpd_req_t http_request_t;
+#else
 #include "networking/httpd.h"
 #include "networking/vfs.h"
+#endif
+
+#define HTTP_UPLOAD_MAX_PATHLENGTH 100
 
 typedef enum
 {
@@ -49,8 +57,8 @@ typedef struct {
     bool to_fatfs;
     char header_name[100];
     char header_value[100];
-    char filename[100];
-    char path[100];
+    char filename[HTTP_UPLOAD_MAX_PATHLENGTH + 1];
+    char path[HTTP_UPLOAD_MAX_PATHLENGTH + 1];
     char size_str[15];
     file_handle_t file;
     http_request_t *req;
@@ -59,8 +67,11 @@ typedef struct {
     size_t uploaded;
 } file_upload_t;
 
+typedef void (*http_upload_filename_parsed_ptr)(char *name);
+
 bool http_upload_start (http_request_t *req, const char* boundary, bool to_fatfs);
 size_t http_upload_chunk (http_request_t *req, const char* data, size_t size);
+void http_upload_on_filename_parsed (http_upload_filename_parsed_ptr fn);
 
 #endif
 
