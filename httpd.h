@@ -88,6 +88,12 @@ typedef struct {
     void *private_data;
 } httpd_uri_handler_t;
 
+typedef struct {
+    const char *name;
+    size_t size;
+    const uint8_t data[];
+} embedded_file_t; // TODO: move to new vfs.c
+
 uint8_t http_get_param_count (http_request_t *request);
 const char *http_get_uri (http_request_t *request);
 char *http_get_param_value (http_request_t *request, const char *key, char *value, uint32_t size);

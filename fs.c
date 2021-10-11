@@ -1,7 +1,7 @@
 //
 // fs.c - wrapper for vfs.c for use by httpd
 //
-// v0.1 / 2021-09-08 / Io Engineering / Terje
+// v0.2 / 2021-10-04 / Io Engineering / Terje
 //
 
 /*
@@ -45,8 +45,9 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #if HTTP_ENABLE
 
 #include "vfs.h"
-#include "lwip/apps/fs.h"
+#include "httpd.h"
 
+static const embedded_file_t **ro_files = NULL;
 static stream_write_ptr wrptr;
 static stream_block_tx_buffer_t txbuf = {0};
 
@@ -92,7 +93,7 @@ static void fs_write (const char *s)
 
     while(length > txbuf.max_length) {
         txbuf.length = txbuf.max_length;
-        memcpy(txbuf.data, s, txbuf.length);
+        memcpy(txbuf.s, s, txbuf.length);
         if(!vf_write())
             return;
         length -= txbuf.max_length;
@@ -131,8 +132,26 @@ struct fs_file *fs_create (void)
     return &v_file;
 }
 
+static const embedded_file_t *file_is_embedded (const char *name)
+{
+    uint_fast8_t idx = 0;
+    const embedded_file_t *file = NULL;
+
+    if(*name == '/')
+        name++;
+
+    if(ro_files) do {
+        if(!strcmp(ro_files[idx]->name, name))
+            file = ro_files[idx];
+    } while(file == NULL && ro_files[++idx] != NULL);
+
+    return file;
+}
+
 err_t fs_open (struct fs_file *file, const char *name)
 {
+    const embedded_file_t *ro_file;
+
     if(name == NULL)
         return ERR_ARG;
 
@@ -154,6 +173,11 @@ err_t fs_open (struct fs_file *file, const char *name)
         if((file->pextension = vfs_open(NULL, fname, "r"))) {
             file->len = vfs_size((vfs_file_t *)file->pextension);
             file->is_custom_file = 0;
+        } else if((ro_file = file_is_embedded(name))) {
+            file->len = ro_file->size;
+            file->data = (char *)ro_file->data;
+            file->is_custom_file = true;
+            file->pextension = (void *)ro_file;
         } else
             file->pextension = NULL;
     }
@@ -197,11 +221,8 @@ int fs_read (struct fs_file *file, char *buffer, int count)
             count = count > file->len ? file->len : count;
             memcpy(buffer, file->data, count);
             file->data += count;
-        } else {
+        } else
             file->len = count = 0;
-
-        }
-
     }
 
     file->len -= count;
@@ -225,6 +246,11 @@ void fs_reset (void)
         free((void *)v_file.data);
         v_file.data = NULL;
     }
+}
+
+void fs_register_embedded_files (const embedded_file_t **files)
+{
+    ro_files = files;
 }
 
 #endif
