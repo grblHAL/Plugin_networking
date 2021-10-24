@@ -1,7 +1,7 @@
 //
 // WsStream.c - lwIP websocket stream implementation
 //
-// v1.5 / 2021-09-08 / Io Engineering / Terje
+// v1.6 / 2021-10-23 / Io Engineering / Terje
 //
 
 /*
@@ -124,19 +124,23 @@ typedef struct pbuf_entry
     struct pbuf_entry *next;
 } pbuf_entry_t;
 
-typedef struct ws_sessiondata
+typedef struct
 {
     uint16_t port;
+    bool linkLost;
+    struct tcp_pcb *pcb;
+} ws_server_t;
+
+typedef struct ws_sessiondata
+{
     websocket_state_t state;
     ws_frame_start_t ftype;
     websocket_opcode_t fragment_opcode;
     ws_frame_start_t start;
     frame_header_t header;
-    bool linkLost;
     uint32_t timeout;
     uint32_t timeoutMax;
-    struct tcp_pcb *pcbConnect;
-    struct tcp_pcb *pcbListen;
+    struct tcp_pcb *pcb;
     pbuf_entry_t queue[PBUF_POOL_SIZE];
     pbuf_entry_t *rcvTail;
     pbuf_entry_t *rcvHead;
@@ -176,21 +180,20 @@ static const ws_frame_start_t wshdr_ping = {
 
 static const ws_sessiondata_t defaultSettings =
 {
-    .port = 80,
-    .state = WsState_Listen,
+    .state = WsState_Connected,
     .fragment_opcode = WsOpcode_Continuation,
     .start.token = FRAME_NONE,
+    .ftype = wshdr_txt,
     .timeout = 0,
     .timeoutMax = SOCKET_TIMEOUT,
-    .pcbConnect = NULL,
-    .pcbListen = NULL,
+    .pcb = NULL,
     .pbufHead = NULL,
     .pbufCurrent = NULL,
     .bufferIndex = 0,
+    .header = {0},
     .rxbuf = {0},
     .txbuf = {0},
     .lastSendTime = 0,
-    .linkLost = false,
     .connectCount = 0,
     .reconnectCount = 0,
     .errorCount = 0,
@@ -201,20 +204,13 @@ static const ws_sessiondata_t defaultSettings =
     .traffic_handler = WsConnectionHandler
 };
 
+static ws_server_t ws_server;
 static ws_sessiondata_t streamSession;
 static enqueue_realtime_command_ptr enqueue_realtime_command = protocol_enqueue_realtime_command;
 
 void WsStreamInit (void)
 {
-    memcpy(&streamSession, &defaultSettings, sizeof(ws_sessiondata_t));
-
-    // turn the packet queue array into a circular linked list
-    uint_fast8_t idx;
-    for(idx = 0; idx < PBUF_POOL_SIZE; idx++) {
-        streamSession.queue[idx].next = &streamSession.queue[idx == PBUF_POOL_SIZE - 1 ? 0 : idx + 1];
-    }
-
-    streamSession.rcvTail = streamSession.rcvHead = &streamSession.queue[0];
+    // NOOP
 }
 
 //
@@ -374,34 +370,33 @@ static void streamFreeBuffers (ws_sessiondata_t *session)
 void WsStreamNotifyLinkStatus (bool up)
 {
     if(!up)
-        streamSession.linkLost = true;
+        ws_server.linkLost = true;
 }
 
 static void streamError (void *arg, err_t err)
 {
-    ws_sessiondata_t *streamSession = arg;
+    ws_sessiondata_t *session = arg;
 
-    streamFreeBuffers(streamSession);
+    streamFreeBuffers(session);
 
-    streamSession->state = WsState_Listen;
-    streamSession->errorCount++;
-    streamSession->lastErr = err;
-    streamSession->pcbConnect = NULL;
-    streamSession->timeout = 0;
-    streamSession->pbufHead = streamSession->pbufCurrent = NULL;
-    streamSession->bufferIndex = 0;
-    streamSession->lastSendTime = 0;
-    streamSession->linkLost = false;
-    streamSession->rcvTail = streamSession->rcvHead;
+    session->state = WsState_Listen;
+    session->errorCount++;
+    session->lastErr = err;
+    session->pcb = NULL;
+    session->timeout = 0;
+    session->pbufHead = session->pbufCurrent = NULL;
+    session->bufferIndex = 0;
+    session->lastSendTime = 0;
+    session->rcvTail = session->rcvHead;
 }
 
 static err_t streamPoll (void *arg, struct tcp_pcb *pcb)
 {
-    ws_sessiondata_t *streamSession = arg;
+    ws_sessiondata_t *session = arg;
 
-    streamSession->timeout++;
+    session->timeout++;
 
-    if(streamSession->timeoutMax && streamSession->timeout > streamSession->timeoutMax)
+    if(session->timeoutMax && session->timeout > session->timeoutMax)
         tcp_abort(pcb);
 
     return ERR_OK;
@@ -419,7 +414,7 @@ static void closeSocket (ws_sessiondata_t *session, struct tcp_pcb *pcb)
 
     streamFreeBuffers(session);
 
-    session->pcbConnect = NULL;
+    session->pcb = NULL;
     session->state = WsState_Listen;
     session->traffic_handler = WsConnectionHandler;
 
@@ -466,40 +461,35 @@ static err_t streamSent (void *arg, struct tcp_pcb *pcb, u16_t ui16len)
 
 static err_t WsStreamAccept (void *arg, struct tcp_pcb *pcb, err_t err)
 {
-    ws_sessiondata_t *session = arg;
+    ws_sessiondata_t *session = &streamSession; // allocate from static pool or heap if multiple connections are to be allowed
 
     if(session->state != WsState_Listen) {
 
-        if(!session->linkLost)
+        if(!ws_server.linkLost)
             return ERR_CONN; // Busy, refuse connection
 
         // Link was previously lost, abort current connection
 
-        tcp_abort(session->pcbConnect);
+        tcp_abort(session->pcb);
 
         streamFreeBuffers(session);
 
-        session->linkLost = false;
+        ws_server.linkLost = false;
     }
 
-    session->ftype = wshdr_txt;
-    session->pcbConnect = pcb;
-    session->state = WsState_Connected;
-    session->fragment_opcode = WsOpcode_Continuation;
-    session->start.token = FRAME_NONE;
-    memset(&session->header, 0, sizeof(frame_header_t));
+    memcpy(session, &defaultSettings, sizeof(ws_sessiondata_t));
 
-    session->traffic_handler = WsConnectionHandler;
-    session->pingCount = 0;
+    // turn the packet queue array into a circular linked list
+    uint_fast8_t idx;
+    for(idx = 0; idx < PBUF_POOL_SIZE; idx++)
+        session->queue[idx].next = &session->queue[idx == PBUF_POOL_SIZE - 1 ? 0 : idx + 1];
 
-    WsStreamRxFlush();
-    WsStreamTxFlush();
+    session->pcb = pcb;
+    session->rcvTail = session->rcvHead = session->queue;
 
     tcp_accepted(pcb);
-
-    session->timeout = 0;
-
     tcp_setprio(pcb, TCP_PRIO_MIN);
+    tcp_arg(pcb, session);
     tcp_recv(pcb, streamReceive);
     tcp_err(pcb, streamError);
     tcp_poll(pcb, streamPoll, 1000 / TCP_SLOW_INTERVAL);
@@ -510,30 +500,23 @@ static err_t WsStreamAccept (void *arg, struct tcp_pcb *pcb, err_t err)
 
 void WsStreamClose (void)
 {
-    if(streamSession.pcbConnect != NULL) {
-        tcp_arg(streamSession.pcbConnect, NULL);
-        tcp_recv(streamSession.pcbConnect, NULL);
-        tcp_sent(streamSession.pcbConnect, NULL);
-        tcp_err(streamSession.pcbConnect, NULL);
-        tcp_poll(streamSession.pcbConnect, NULL, 1);
+    if(streamSession.pcb != NULL) {
+        tcp_arg(streamSession.pcb, NULL);
+        tcp_recv(streamSession.pcb, NULL);
+        tcp_sent(streamSession.pcb, NULL);
+        tcp_err(streamSession.pcb, NULL);
+        tcp_poll(streamSession.pcb, NULL, 1);
 
-        tcp_abort(streamSession.pcbConnect);
+        tcp_abort(streamSession.pcb);
         streamFreeBuffers(&streamSession);
+
+        streamSession.pcb = NULL;
     }
 
-    if(streamSession.pcbListen != NULL) {
-        tcp_close(streamSession.pcbListen);
+    if(ws_server.pcb != NULL) {
+        tcp_close(ws_server.pcb);
         streamFreeBuffers(&streamSession);
     }
-
-    streamSession.state = WsState_Idle;
-    streamSession.pcbConnect = streamSession.pcbListen = NULL;
-    streamSession.timeout = 0;
-    streamSession.rcvTail = streamSession.rcvHead;
-    streamSession.pbufHead = streamSession.pbufCurrent = NULL;
-    streamSession.bufferIndex = 0;
-    streamSession.lastSendTime = 0;
-    streamSession.linkLost = false;
 
     // Switch I/O stream back to default
     hal.stream_select(NULL);
@@ -541,26 +524,16 @@ void WsStreamClose (void)
 
 void WsStreamListen (uint16_t port)
 {
-//    ASSERT(port != 0);
-
-    streamSession.state = WsState_Listen;
-    streamSession.pcbConnect = NULL;
-    streamSession.timeout = 0;
-    streamSession.timeoutMax = SOCKET_TIMEOUT;
-    streamSession.port = port;
-    streamSession.rcvTail = streamSession.rcvHead;
-    streamSession.pbufHead = streamSession.pbufCurrent = NULL;
-    streamSession.bufferIndex = 0;
-    streamSession.lastSendTime = 0;
-    streamSession.linkLost = false;
+    ws_server.port = port;
+    ws_server.linkLost = false;
 
     void *pcb = tcp_new();
     tcp_bind(pcb, IP_ADDR_ANY, port);
 
-    streamSession.pcbListen = tcp_listen(pcb);
+    ws_server.pcb = tcp_listen(pcb);
+    tcp_accept(ws_server.pcb, WsStreamAccept);
 
-    tcp_arg(streamSession.pcbListen, &streamSession);
-    tcp_accept(streamSession.pcbListen, WsStreamAccept);
+    streamSession.state = WsState_Listen; // For now
 }
 
 
@@ -604,7 +577,7 @@ static err_t http_write(struct tcp_pcb *pcb, const void* ptr, u16_t *length, u8_
 static void http_write_error (ws_sessiondata_t *session, const char *status)
 {
     uint16_t len = strlen(status);
-    http_write(session->pcbConnect, status, &len, 1);
+    http_write(session->pcb, status, &len, 1);
     session->state = WsStateClosing;
 }
 
@@ -695,7 +668,7 @@ static void WsConnectionHandler (ws_sessiondata_t *session)
 
         // ACK current pbuf chain when all data has been processed
         if((session->pbufCurrent == NULL) && (session->bufferIndex == 0)) {
-            tcp_recved(session->pcbConnect, session->pbufHead->tot_len);
+            tcp_recved(session->pcb, session->pbufHead->tot_len);
             pbuf_free(session->pbufHead);
             session->pbufCurrent = session->pbufHead = NULL;
             session->bufferIndex = 0;
@@ -756,7 +729,7 @@ static void WsConnectionHandler (ws_sessiondata_t *session)
     DEBUG_PRINT(response);
 #endif
                     u16_t len = strlen(response);
-                    http_write(session->pcbConnect, response, (u16_t *)&len, 1);
+                    http_write(session->pcb, response, (u16_t *)&len, 1);
                     session->traffic_handler = WsStreamHandler;
                     session->lastSendTime = xTaskGetTickCount();
                     hal.stream_select(&websocket_stream);
@@ -917,8 +890,8 @@ static uint32_t WsParse (ws_sessiondata_t *session, uint8_t *payload, uint32_t l
                     plen -= session->header.payload_rem;
                     if(WsCollectFrame(&session->header, payload, session->header.payload_rem))
                         payload = session->header.frame;
-                    tcp_write(session->pcbConnect, payload, session->header.payload_len, 1);
-                    tcp_output(session->pcbConnect);
+                    tcp_write(session->pcb, payload, session->header.payload_len, 1);
+                    tcp_output(session->pcb);
                     session->state = WsStateClosing;
                 } else {
                     WsCollectFrame(&session->header, payload, plen);
@@ -928,14 +901,14 @@ static uint32_t WsParse (ws_sessiondata_t *session, uint8_t *payload, uint32_t l
 
             case WsOpcode_Ping:
                 if((frame_done = plen >= session->header.payload_rem)) {
-                    if(streamSession.state != WsStateClosing) {
+                    if(session->state != WsStateClosing) {
                         plen -= session->header.payload_rem;
                         if(WsCollectFrame(&session->header, payload, session->header.payload_rem))
                             payload = session->header.frame;
                         fs.opcode = WsOpcode_Pong;
                         payload[0] = fs.token;
-                        tcp_write(session->pcbConnect, payload, session->header.payload_len, 1);
-                        tcp_output(session->pcbConnect);
+                        tcp_write(session->pcb, payload, session->header.payload_len, 1);
+                        tcp_output(session->pcb);
                     }
                 } else {
                     WsCollectFrame(&session->header, payload, plen);
@@ -1018,25 +991,25 @@ static void WsStreamHandler (ws_sessiondata_t *session)
 
         // ACK current pbuf chain when all data has been processed
         if((session->pbufCurrent == NULL) && (session->bufferIndex == 0)) {
-            tcp_recved(session->pcbConnect, session->pbufHead->tot_len);
+            tcp_recved(session->pcb, session->pbufHead->tot_len);
             pbuf_free(session->pbufHead);
             session->pbufCurrent = session->pbufHead = NULL;
             session->bufferIndex = 0;
         }
     }
 
-//    tcp_output(session->pcbConnect);
+//    tcp_output(session->pcb);
 
     uint_fast16_t TXCount;
 
     // 2. Process output stream
-    if((TXCount = WsStreamTxCount()) && tcp_sndbuf(session->pcbConnect) > 4) {
+    if((TXCount = WsStreamTxCount()) && tcp_sndbuf(session->pcb) > 4) {
 
         int16_t c;
         uint_fast16_t idx = 0;
 
-        if(TXCount > tcp_sndbuf(session->pcbConnect) - 4)
-            TXCount = tcp_sndbuf(session->pcbConnect) - 4;
+        if(TXCount > tcp_sndbuf(session->pcb) - 4)
+            TXCount = tcp_sndbuf(session->pcb) - 4;
 
         if(TXCount > sizeof(tempBuffer) - 4)
             TXCount = sizeof(tempBuffer) - 4;
@@ -1064,8 +1037,8 @@ static void WsStreamHandler (ws_sessiondata_t *session)
     DEBUG_PRINT("\r\n");
 #endif
 
-        tcp_write(session->pcbConnect, tempBuffer, (u16_t)idx, 1);
-        tcp_output(session->pcbConnect);
+        tcp_write(session->pcb, tempBuffer, (u16_t)idx, 1);
+        tcp_output(session->pcb);
 
         session->lastSendTime = xTaskGetTickCount();
     }
@@ -1073,14 +1046,14 @@ static void WsStreamHandler (ws_sessiondata_t *session)
     // Send ping every 3 seconds if no outgoing traffic.
     // Disconnect session after 3 failed pings (9 seconds).
     if(session->pingCount > 3)
-        streamSession.state = WsStateClosing;
-    else if(streamSession.state != WsStateClosing && (xTaskGetTickCount() - session->lastSendTime) > (3 * configTICK_RATE_HZ)) {
-        if(tcp_sndbuf(session->pcbConnect) > 4) {
+        session->state = WsStateClosing;
+    else if(session->state != WsStateClosing && (xTaskGetTickCount() - session->lastSendTime) > (3 * configTICK_RATE_HZ)) {
+        if(tcp_sndbuf(session->pcb) > 4) {
             tempBuffer[0] = wshdr_ping.token;
             tempBuffer[1] = 2;
             strcpy((char *)&tempBuffer[2], "Hi");
-            tcp_write(session->pcbConnect, tempBuffer, 4, 1);
-            tcp_output(session->pcbConnect);
+            tcp_write(session->pcb, tempBuffer, 4, 1);
+            tcp_output(session->pcb);
             session->lastSendTime = xTaskGetTickCount();
             session->pingCount++;
         }
@@ -1095,7 +1068,7 @@ void WsStreamPoll (void)
     if(streamSession.state == WsState_Connected)
         streamSession.traffic_handler(&streamSession);
     else if(streamSession.state == WsStateClosing)
-        closeSocket(&streamSession, streamSession.pcbConnect);
+        closeSocket(&streamSession, streamSession.pcb);
 }
 
 #endif
