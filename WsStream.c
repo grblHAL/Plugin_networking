@@ -1,7 +1,7 @@
 //
 // WsStream.c - lwIP websocket stream implementation
 //
-// v1.6 / 2021-10-23 / Io Engineering / Terje
+// v1.6 / 2021-10-30 / Io Engineering / Terje
 //
 
 /*
@@ -183,7 +183,7 @@ static const ws_sessiondata_t defaultSettings =
     .state = WsState_Connected,
     .fragment_opcode = WsOpcode_Continuation,
     .start.token = FRAME_NONE,
-    .ftype = wshdr_txt,
+//    .ftype = wshdr_txt,
     .timeout = 0,
     .timeoutMax = SOCKET_TIMEOUT,
     .pcb = NULL,
@@ -478,6 +478,8 @@ static err_t WsStreamAccept (void *arg, struct tcp_pcb *pcb, err_t err)
     }
 
     memcpy(session, &defaultSettings, sizeof(ws_sessiondata_t));
+
+    session->ftype = wshdr_txt;
 
     // turn the packet queue array into a circular linked list
     uint_fast8_t idx;
