@@ -1244,7 +1244,7 @@ void ftpd_poll (void)
 #endif
 }
 
-void ftpd_init (void)
+void ftpd_init (uint16_t port)
 {
     struct tcp_pcb *pcb;
 
@@ -1253,10 +1253,10 @@ void ftpd_init (void)
     pcb = tcp_new();
     LWIP_DEBUGF(FTPD_DEBUG, ("ftpd_init: pcb: %x\n", pcb));
 #if FTPD_DEBUG
-    int r = tcp_bind(pcb, IP_ADDR_ANY, 21);
+    int r = tcp_bind(pcb, IP_ADDR_ANY, port);
     LWIP_DEBUGF(FTPD_DEBUG, ("ftpd_init: tcp_bind: %d\n", r));
 #else
-    tcp_bind(pcb, IP_ADDR_ANY, 21);
+    tcp_bind(pcb, IP_ADDR_ANY, port);
 #endif
     pcb = tcp_listen(pcb);
     LWIP_DEBUGF(FTPD_DEBUG, ("ftpd_init: listen-pcb: %x\n", pcb));
