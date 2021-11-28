@@ -55,7 +55,7 @@ struct tm {
 };
 #endif // __time_t_defined
 
-#if defined(ESP_PLATFORM)
+#ifdef ESP_PLATFORM
 typedef FF_DIR vfs_dir_t;
 #else
 typedef DIR vfs_dir_t;
@@ -66,7 +66,11 @@ typedef FIL vfs_t;
 typedef struct {
 	long st_size;
 	char st_mode;
+#ifdef ESP_PLATFORM // some versions of ESP-IDF/Compiler combos are fcked up
+	time_t st_mtim;
+#else
 	time_t st_mtime;
+#endif
 } vfs_stat_t;
 
 typedef struct {

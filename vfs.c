@@ -96,7 +96,11 @@ int vfs_stat (vfs_t *vfs, const char *filename, vfs_stat_t *st)
             .tm_mon  = (f.fdate >> 5) & 0xf,
             .tm_year = 80 + ((f.fdate >> 9) & 0x7f),
         };
+#ifdef ESP_PLATFORM
+        st->st_mtim = mktime(&tm);
+#else
         st->st_mtime = mktime(&tm);
+#endif
     } else
         return 1;
 
