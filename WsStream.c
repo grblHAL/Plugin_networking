@@ -1,7 +1,7 @@
 //
 // WsStream.c - lwIP websocket stream implementation
 //
-// v1.6 / 2021-10-30 / Io Engineering / Terje
+// v1.7 / 2021-11-30 / Io Engineering / Terje
 //
 
 /*
@@ -679,39 +679,80 @@ static void WsConnectionHandler (ws_sessiondata_t *session)
 
     session->http_request[ptr] = '\0';
 
-    if((hdr_ok = strstr(session->http_request, "\r\n\r\n"))) {
+    if((hdr_ok = strstr(session->http_request, CRLF CRLF))) {
 
 #ifdef WSDEBUG
     DEBUG_PRINT(session->http_request);
 #endif
 
-        char *keyp, *key_hdr;
+        char c = '\r', *argp, *argend, *protocol = NULL;
 
-        if((key_hdr = stristr(session->http_request, WS_KEY))) {
+        if((argend = stristr(session->http_request, WS_PROT))) {
 
-            keyp = key_hdr + sizeof(WS_KEY) - 1;
+            argp = argend + sizeof(WS_PROT) - 1;
 
-            if((key_hdr = strstr(keyp, "\r\n"))) {
+            if((argend = strstr(argp, CRLF))) {
+
+                *argend = '\0';
+
+                // Trim leading spaces from protocol
+                while(*argp == ' ')
+                    argp++;
+
+                // Trim trailing spaces from protocol
+                while(*(argend - 1) == ' ') {
+                    *argend = c;
+                    c = *(--argend);
+                    *argend = '\0';
+                }
+
+                if((protocol = malloc(strlen(argp) + 1))) {
+
+                    memcpy(protocol, argp, strlen(argp) + 1);
+
+                    // Select the first protocol if more than one
+                    if((argp = strchr(protocol, ',')))
+                        *argp = '\0';
+
+                    // Switch to binary frames if protocol is: arduino
+                    if(!strcmp(protocol, "arduino"))
+                        session->ftype = wshdr_bin;
+                }
+
+                *argend = c;
+            }
+        }
+
+        if((argend = stristr(session->http_request, WS_KEY))) {
+
+            argp = argend + sizeof(WS_KEY) - 1;
+
+            if((argend = strstr(argp, CRLF))) {
 
                 char key[64];
-                char rsp[150];
+                char rsp[200];
 
-                *key_hdr = '\0';
+                *argend = '\0';
 
                 // Trim leading spaces from key
-                while(*keyp == ' ')
-                    keyp++;
+                while(*argp == ' ')
+                    argp++;
 
                 // Trim trailing spaces from key
-                while(*--key_hdr == ' ')
-                    key_hdr = '\0';
+                while(*(argend - 1) == ' ') {
+                    *argend = c;
+                    c = *(--argend);
+                    *argend = '\0';
+                }
 
                 // Copy base response header to response buffer
                 char *response = memcpy(rsp /*session->http_request*/, WS_RSP, sizeof(WS_RSP) - 1);
 
                 // Concatenate keys
-                strcpy(key, keyp);
+                strcpy(key, argp);
                 strcat(key, WS_GUID);
+
+                *argend = c;
 
                 // Get SHA1 of keys
                 BYTE sha1sum[SHA1_BLOCK_SIZE];
@@ -726,6 +767,11 @@ static void WsConnectionHandler (ws_sessiondata_t *session)
                 // Upgrade...
                 if (olen) {
                     response[olen + sizeof(WS_RSP) - 1] = '\0';
+                    if(protocol) {
+                        strcat(response, CRLF);
+                        strcat(response, WS_PROT);
+                        strcat(response, protocol);
+                    }
                     strcat(response, CRLF CRLF);
 #ifdef WSDEBUG
     DEBUG_PRINT(response);
@@ -739,29 +785,9 @@ static void WsConnectionHandler (ws_sessiondata_t *session)
             }
         }
 
-        if((key_hdr = stristr(session->http_request, WS_PROT))) {
-
-            keyp = key_hdr + sizeof(WS_PROT) - 1;
-
-            if((key_hdr = strstr(keyp, "\r\n"))) {
-
-                *key_hdr = '\0';
-
-                // Trim leading spaces from key
-                while(*keyp == ' ')
-                    keyp++;
-
-                // Trim trailing spaces from key
-                while(*--key_hdr == ' ')
-                    key_hdr = '\0';
-
-                // Switch to binary frames if protocol is: arduino
-                if(!strcmp(keyp, "arduino"))
-                    session->ftype = wshdr_bin;
-            }
-        }
-
         free(session->http_request);
+        if(protocol)
+            free(protocol);
         session->http_request = NULL;
         session->hdrsize = MAX_HTTP_HEADER_SIZE;
     }
