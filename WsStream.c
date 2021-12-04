@@ -1,7 +1,7 @@
 //
 // WsStream.c - lwIP websocket stream implementation
 //
-// v1.7 / 2021-11-30 / Io Engineering / Terje
+// v1.8 / 2021-12-03 / Io Engineering / Terje
 //
 
 /*
@@ -260,8 +260,10 @@ bool WsStreamSuspendInput (bool suspend)
 
 bool WsStreamRxInsert (char c)
 {
+    bool ok;
+
     // discard input if MPG has taken over...
-    if(hal.stream.type != StreamType_MPG) {
+    if((ok = streamSession.state == WsState_Connected && hal.stream.type != StreamType_MPG)) {
         if(!enqueue_realtime_command(c)) {                          // If not a real time command attempt to buffer it
             uint_fast16_t next_head = BUFNEXT(streamSession.rxbuf.head, streamSession.rxbuf);
             if(next_head == streamSession.rxbuf.tail)               // If buffer full
@@ -271,7 +273,7 @@ bool WsStreamRxInsert (char c)
         }
     }
 
-    return !streamSession.rxbuf.overflow;
+    return ok && !streamSession.rxbuf.overflow;
 }
 
 bool WsStreamPutC (const char c)
@@ -605,7 +607,7 @@ static void WsConnectionHandler (ws_sessiondata_t *session)
 {
     static const io_stream_t websocket_stream = {
         .type = StreamType_WebSocket,
-        .connected = true,
+        .state.connected = true,
         .read = WsStreamGetC,
         .write = WsStreamWriteS,
         .write_char = WsStreamPutC,

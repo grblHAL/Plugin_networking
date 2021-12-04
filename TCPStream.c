@@ -1,7 +1,7 @@
 //
 // TCPStream.c - lwIP stream implementation, raw "Telnet"
 //
-// v1.5 / 2021-09-08 / Io Engineering / Terje
+// v1.6 / 2021-12-03 / Io Engineering / Terje
 //
 
 /*
@@ -380,7 +380,7 @@ static err_t TCPStreamAccept (void *arg, struct tcp_pcb *pcb, err_t err)
 {
     static const io_stream_t telnet_stream = {
         .type = StreamType_Telnet,
-        .connected = true,
+        .state.connected = true,
         .read = TCPStreamGetC,
         .write = TCPStreamWriteS,
         .write_char = TCPStreamPutC,
