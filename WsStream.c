@@ -340,9 +340,6 @@ void WsStreamTxFlush (void)
 
 static void streamFreeBuffers (ws_sessiondata_t *session)
 {
-    SYS_ARCH_DECL_PROTECT(lev);
-    SYS_ARCH_PROTECT(lev);
-
     // Free any buffer chain currently beeing processed
     if(session->pbufHead != NULL) {
         pbuf_free(session->pbufHead);
@@ -363,10 +360,10 @@ static void streamFreeBuffers (ws_sessiondata_t *session)
         session->hdrsize = MAX_HTTP_HEADER_SIZE;
     }
 
-    if(session->header.frame)
+    if(session->header.frame) {
         free(session->header.frame);
-
-    SYS_ARCH_UNPROTECT(lev);
+        session->header.frame = NULL;
+    }
 }
 
 void WsStreamNotifyLinkStatus (bool up)
@@ -396,29 +393,33 @@ static err_t streamPoll (void *arg, struct tcp_pcb *pcb)
 {
     ws_sessiondata_t *session = arg;
 
-    session->timeout++;
-
-    if(session->timeoutMax && session->timeout > session->timeoutMax)
-        tcp_abort(pcb);
+    if(!session)
+        tcp_close(pcb);
+    else {
+        session->timeout++;
+        if(session->timeoutMax && session->timeout > session->timeoutMax)
+            tcp_abort(pcb);
+    }
 
     return ERR_OK;
 }
 
 static void closeSocket (ws_sessiondata_t *session, struct tcp_pcb *pcb)
 {
+    streamFreeBuffers(session);
+
+    session->state = WsState_Listen;
+    session->traffic_handler = WsConnectionHandler;
+    session->pcb = NULL;
+
     tcp_arg(pcb, NULL);
     tcp_recv(pcb, NULL);
     tcp_sent(pcb, NULL);
     tcp_err(pcb, NULL);
-    tcp_poll(pcb, NULL, 1);
+    tcp_poll(pcb, NULL, 0);
 
-    tcp_close(pcb);
-
-    streamFreeBuffers(session);
-
-    session->pcb = NULL;
-    session->state = WsState_Listen;
-    session->traffic_handler = WsConnectionHandler;
+    if (tcp_close(pcb) != ERR_OK)
+        tcp_poll(pcb, streamPoll, 1000 / TCP_SLOW_INTERVAL);
 
     // Switch I/O stream back to default
     hal.stream_select(NULL);
@@ -509,7 +510,7 @@ void WsStreamClose (void)
         tcp_recv(streamSession.pcb, NULL);
         tcp_sent(streamSession.pcb, NULL);
         tcp_err(streamSession.pcb, NULL);
-        tcp_poll(streamSession.pcb, NULL, 1);
+        tcp_poll(streamSession.pcb, NULL, 0);
 
         tcp_abort(streamSession.pcb);
         streamFreeBuffers(&streamSession);

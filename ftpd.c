@@ -56,6 +56,10 @@
 #include "ftpd.h"
 #include "sfifo.h"
 
+#ifndef FTPD_POLL_INTERVAL
+#define FTPD_POLL_INTERVAL 4
+#endif
+
 #ifdef LWIP_DEBUGF
 #undef LWIP_DEBUGF
 #endif
@@ -766,7 +770,7 @@ static void cmd_pasv (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *fsm)
 
     memset(fsm->datafs, 0, sizeof(ftpd_datastate_t));
 
-    if (sfifo_init(&fsm->datafs->fifo, 2000) != 0) {
+    if (sfifo_init(&fsm->datafs->fifo, 3000) != 0) {
         free(fsm->datafs);
         send_msg(pcb, fsm, msg451);
         return;
@@ -1231,7 +1235,7 @@ static err_t ftpd_msgaccept (void *arg, struct tcp_pcb *pcb, err_t err)
        successfully sent by a call to the ftpd_sent() function. */
     tcp_sent(pcb, ftpd_msgsent);
     tcp_err(pcb, ftpd_msgerr);
-    tcp_poll(pcb, ftpd_msgpoll, 1);
+    tcp_poll(pcb, ftpd_msgpoll, FTPD_POLL_INTERVAL);
 
     send_msg(pcb, fsm, msg220);
 
