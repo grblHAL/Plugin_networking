@@ -1,7 +1,7 @@
 //
 // WsStream.c - lwIP websocket stream implementation
 //
-// v1.8 / 2021-12-03 / Io Engineering / Terje
+// v1.9 / 2021-12-09 / Io Engineering / Terje
 //
 
 /*
@@ -12,14 +12,14 @@ All rights reserved.
 Redistribution and use in source and binary forms, with or without modification,
 are permitted provided that the following conditions are met:
 
-ï¿½ Redistributions of source code must retain the above copyright notice, this
+* Redistributions of source code must retain the above copyright notice, this
 list of conditions and the following disclaimer.
 
-ï¿½ Redistributions in binary form must reproduce the above copyright notice, this
+* Redistributions in binary form must reproduce the above copyright notice, this
 list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-ï¿½ Neither the name of the copyright holder nor the names of its contributors may
+* Neither the name of the copyright holder nor the names of its contributors may
 be used to endorse or promote products derived from this software without
 specific prior written permission.
 
@@ -133,6 +133,7 @@ typedef struct
 
 typedef struct ws_sessiondata
 {
+    const io_stream_t *stream;
     websocket_state_t state;
     ws_frame_start_t ftype;
     websocket_opcode_t fragment_opcode;
@@ -216,7 +217,7 @@ void WsStreamInit (void)
 //
 // WsStreamGetC - returns -1 if no data available
 //
-int16_t WsStreamGetC (void)
+static int16_t WsStreamGetC (void)
 {
     int16_t data;
 
@@ -229,31 +230,31 @@ int16_t WsStreamGetC (void)
     return data;
 }
 
-inline uint16_t WsStreamRxCount (void)
+static inline uint16_t WsStreamRxCount (void)
 {
     uint_fast16_t head = streamSession.rxbuf.head, tail = streamSession.rxbuf.tail;
 
     return BUFCOUNT(head, tail, RX_BUFFER_SIZE);
 }
 
-uint16_t WsStreamRxFree (void)
+static uint16_t WsStreamRxFree (void)
 {
     return (RX_BUFFER_SIZE - 1) - WsStreamRxCount();
 }
 
-void WsStreamRxFlush (void)
+static void WsStreamRxFlush (void)
 {
     streamSession.rxbuf.tail = streamSession.rxbuf.head;
 }
 
-void WsStreamRxCancel (void)
+static void WsStreamRxCancel (void)
 {
     streamSession.rxbuf.data[streamSession.rxbuf.head] = ASCII_CAN;
     streamSession.rxbuf.tail = streamSession.rxbuf.head;
     streamSession.rxbuf.head = BUFNEXT(streamSession.rxbuf.head, streamSession.rxbuf);;
 }
 
-bool WsStreamSuspendInput (bool suspend)
+static bool WsStreamSuspendInput (bool suspend)
 {
     return stream_rx_suspend(&streamSession.rxbuf, suspend);
 }
@@ -276,7 +277,7 @@ bool WsStreamRxInsert (char c)
     return ok && !streamSession.rxbuf.overflow;
 }
 
-bool WsStreamPutC (const char c)
+static bool WsStreamPutC (const char c)
 {
     uint_fast16_t next_head = BUFNEXT(streamSession.txbuf.head, streamSession.txbuf);
 
@@ -291,7 +292,7 @@ bool WsStreamPutC (const char c)
     return true;
 }
 
-void WsStreamWriteS (const char *data)
+static void WsStreamWriteS (const char *data)
 {
     char c, *ptr = (char *)data;
 
@@ -299,13 +300,7 @@ void WsStreamWriteS (const char *data)
         WsStreamPutC(c);
 }
 
-void WsStreamWriteLn (const char *data)
-{
-    WsStreamWriteS(data);
-    WsStreamWriteS(ASCII_EOL);
-}
-
-void WsStreamWrite (const char *data, unsigned int length)
+static void WsStreamWrite (const char *data, uint16_t length)
 {
     char *ptr = (char *)data;
 
@@ -313,7 +308,7 @@ void WsStreamWrite (const char *data, unsigned int length)
         WsStreamPutC(*ptr++);
 }
 
-uint16_t WsStreamTxCount(void) {
+static uint16_t WsStreamTxCount(void) {
 
     uint_fast16_t head = streamSession.txbuf.head, tail = streamSession.txbuf.tail;
 
@@ -333,10 +328,12 @@ static int16_t streamReadTXC (void)
     return data;
 }
 
-void WsStreamTxFlush (void)
+/*
+static void WsStreamTxFlush (void)
 {
     streamSession.txbuf.tail = streamSession.txbuf.head;
 }
+*/
 
 static void streamFreeBuffers (ws_sessiondata_t *session)
 {
@@ -372,6 +369,15 @@ void WsStreamNotifyLinkStatus (bool up)
         ws_server.linkLost = true;
 }
 
+static void streamClose (ws_sessiondata_t *session)
+{
+    // Switch I/O stream back to default
+    if(session->stream) {
+        stream_disconnect(session->stream);
+        session->stream = NULL;
+    }
+}
+
 static void streamError (void *arg, err_t err)
 {
     ws_sessiondata_t *session = arg;
@@ -387,6 +393,8 @@ static void streamError (void *arg, err_t err)
     session->bufferIndex = 0;
     session->lastSendTime = 0;
     session->rcvTail = session->rcvHead;
+
+    streamClose(session);
 }
 
 static err_t streamPoll (void *arg, struct tcp_pcb *pcb)
@@ -422,7 +430,7 @@ static void closeSocket (ws_sessiondata_t *session, struct tcp_pcb *pcb)
         tcp_poll(pcb, streamPoll, 1000 / TCP_SLOW_INTERVAL);
 
     // Switch I/O stream back to default
-    hal.stream_select(NULL);
+    streamClose(session);
 }
 
 //
@@ -480,6 +488,8 @@ static err_t WsStreamAccept (void *arg, struct tcp_pcb *pcb, err_t err)
         ws_server.linkLost = false;
     }
 
+    streamClose(session);
+
     memcpy(session, &defaultSettings, sizeof(ws_sessiondata_t));
 
     session->ftype = wshdr_txt;
@@ -524,7 +534,7 @@ void WsStreamClose (void)
     }
 
     // Switch I/O stream back to default
-    hal.stream_select(NULL);
+    streamClose(&streamSession);
 }
 
 void WsStreamListen (uint16_t port)
@@ -611,6 +621,7 @@ static void WsConnectionHandler (ws_sessiondata_t *session)
         .state.connected = true,
         .read = WsStreamGetC,
         .write = WsStreamWriteS,
+        .write_n = WsStreamWrite,
         .write_char = WsStreamPutC,
         .enqueue_rt_command = WsEnqueueRtCommand,
         .get_rx_buffer_free = WsStreamRxFree,
@@ -620,8 +631,9 @@ static void WsConnectionHandler (ws_sessiondata_t *session)
         .set_enqueue_rt_handler = WsSetRtHandler
     };
 
-    bool hdr_ok;
     static uint32_t ptr = 0;
+
+    bool hdr_ok;
 
     if(session->http_request == NULL) {
         ptr = 0;
@@ -783,7 +795,6 @@ static void WsConnectionHandler (ws_sessiondata_t *session)
                     http_write(session->pcb, response, (u16_t *)&len, 1);
                     session->traffic_handler = WsStreamHandler;
                     session->lastSendTime = xTaskGetTickCount();
-                    hal.stream_select(&websocket_stream);
                 }
             }
         }
@@ -791,8 +802,18 @@ static void WsConnectionHandler (ws_sessiondata_t *session)
         free(session->http_request);
         if(protocol)
             free(protocol);
+
         session->http_request = NULL;
         session->hdrsize = MAX_HTTP_HEADER_SIZE;
+
+        if(session->traffic_handler == WsStreamHandler) {
+            if(hal.stream_select)
+                hal.stream_select(&websocket_stream);
+            else if(stream_connect(&websocket_stream))
+                session->stream = &websocket_stream;
+            //else
+            //  abort connection?
+        }
     }
 
     // Bad request?

@@ -1,7 +1,7 @@
 //
 // TCPStream.c - lwIP stream implementation, raw "Telnet"
 //
-// v1.6 / 2021-12-03 / Io Engineering / Terje
+// v1.8 / 2021-12-13 / Io Engineering / Terje
 //
 
 /*
@@ -12,14 +12,14 @@ All rights reserved.
 Redistribution and use in source and binary forms, with or without modification,
 are permitted provided that the following conditions are met:
 
-ï¿½ Redistributions of source code must retain the above copyright notice, this
+* Redistributions of source code must retain the above copyright notice, this
 list of conditions and the following disclaimer.
 
-ï¿½ Redistributions in binary form must reproduce the above copyright notice, this
+* Redistributions in binary form must reproduce the above copyright notice, this
 list of conditions and the following disclaimer in the documentation and/or
 other materials provided with the distribution.
 
-ï¿½ Neither the name of the copyright holder nor the names of its contributors may
+* Neither the name of the copyright holder nor the names of its contributors may
 be used to endorse or promote products derived from this software without
 specific prior written permission.
 
@@ -66,6 +66,7 @@ typedef struct pbuf_entry
 
 typedef struct
 {
+    const io_stream_t *stream;
     uint16_t port;
     TCPState_t state;
     bool linkLost;
@@ -128,7 +129,7 @@ void TCPStreamInit (void)
 //
 // TCPStreamGetC - returns -1 if no data available
 //
-int16_t TCPStreamGetC (void)
+static int16_t TCPStreamGetC (void)
 {
     int16_t data;
 
@@ -141,31 +142,31 @@ int16_t TCPStreamGetC (void)
     return data;
 }
 
-inline uint16_t TCPStreamRxCount (void)
+static inline uint16_t TCPStreamRxCount (void)
 {
     uint_fast16_t head = streamSession.rxbuf.head, tail = streamSession.rxbuf.tail;
 
     return BUFCOUNT(head, tail, RX_BUFFER_SIZE);
 }
 
-uint16_t TCPStreamRxFree (void)
+static uint16_t TCPStreamRxFree (void)
 {
     return (RX_BUFFER_SIZE - 1) - TCPStreamRxCount();
 }
 
-void TCPStreamRxFlush (void)
+static void TCPStreamRxFlush (void)
 {
     streamSession.rxbuf.tail = streamSession.rxbuf.head;
 }
 
-void TCPStreamRxCancel (void)
+static void TCPStreamRxCancel (void)
 {
     streamSession.rxbuf.data[streamSession.rxbuf.head] = ASCII_CAN;
     streamSession.rxbuf.tail = streamSession.rxbuf.head;
     streamSession.rxbuf.head = BUFNEXT(streamSession.rxbuf.head, streamSession.rxbuf);;
 }
 
-bool TCPStreamSuspendInput (bool suspend)
+static bool TCPStreamSuspendInput (bool suspend)
 {
     return stream_rx_suspend(&streamSession.rxbuf, suspend);
 }
@@ -186,7 +187,7 @@ static bool streamBufferRX (char c)
     return !streamSession.rxbuf.overflow;
 }
 
-bool TCPStreamPutC (const char c)
+static bool TCPStreamPutC (const char c)
 {
     uint_fast16_t next_head = BUFNEXT(streamSession.txbuf.head, streamSession.txbuf);
 
@@ -201,7 +202,7 @@ bool TCPStreamPutC (const char c)
     return true;
 }
 
-void TCPStreamWriteS (const char *data)
+static void TCPStreamWriteS (const char *data)
 {
     char c, *ptr = (char *)data;
 
@@ -209,13 +210,7 @@ void TCPStreamWriteS (const char *data)
         TCPStreamPutC(c);
 }
 
-void TCPStreamWriteLn (const char *data)
-{
-    TCPStreamWriteS(data);
-    TCPStreamWriteS(ASCII_EOL);
-}
-
-void TCPStreamWrite (const char *data, unsigned int length)
+static void TCPStreamWrite (const char *data, uint16_t length)
 {
     char *ptr = (char *)data;
 
@@ -223,7 +218,7 @@ void TCPStreamWrite (const char *data, unsigned int length)
         TCPStreamPutC(*ptr++);
 }
 
-uint16_t TCPStreamTxCount(void) {
+static uint16_t TCPStreamTxCount(void) {
 
     uint_fast16_t head = streamSession.txbuf.head, tail = streamSession.txbuf.tail;
 
@@ -243,7 +238,7 @@ static int16_t streamReadTXC (void)
     return data;
 }
 
-void TCPStreamTxFlush (void)
+static void TCPStreamTxFlush (void)
 {
     streamSession.txbuf.tail = streamSession.txbuf.head;
 }
@@ -275,6 +270,15 @@ void TCPStreamNotifyLinkStatus (bool up)
         streamSession.linkLost = true;
 }
 
+static void streamClose (sessiondata_t *session)
+{
+    // Switch I/O stream back to default
+    if(session->stream) {
+        stream_disconnect(session->stream);
+        session->stream = NULL;
+    }
+}
+
 static void streamError (void *arg, err_t err)
 {
     sessiondata_t *session = arg;
@@ -291,6 +295,8 @@ static void streamError (void *arg, err_t err)
     session->lastSendTime = 0;
     session->linkLost = false;
     session->rcvTail = session->rcvHead;
+
+    streamClose(session);
 }
 
 static err_t streamPoll (void *arg, struct tcp_pcb *pcb)
@@ -321,7 +327,7 @@ static void closeSocket (sessiondata_t *session, struct tcp_pcb *pcb)
     session->state = TCPState_Listen;
 
     // Switch I/O stream back to default
-    hal.stream_select(NULL);
+    streamClose(session);
 }
 
 //
@@ -347,6 +353,9 @@ static err_t streamReceive (void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_
                 session->rcvHead = session->rcvHead->next;
                 SYS_ARCH_UNPROTECT(lev);
             }
+#if defined(__IMXRT1062__)
+            TCPStreamPoll();
+#endif
         } else // Null packet received, means close connection
             closeSocket(session, pcb);;
     }
@@ -383,6 +392,7 @@ static err_t TCPStreamAccept (void *arg, struct tcp_pcb *pcb, err_t err)
         .state.connected = true,
         .read = TCPStreamGetC,
         .write = TCPStreamWriteS,
+        .write_n = TCPStreamWrite,
         .write_char = TCPStreamPutC,
         .enqueue_rt_command = TCPEnqueueRtCommand,
         .get_rx_buffer_free = TCPStreamRxFree,
@@ -408,6 +418,8 @@ static err_t TCPStreamAccept (void *arg, struct tcp_pcb *pcb, err_t err)
         session->linkLost = false;
     }
 
+    streamClose(session);
+
     session->pcbConnect = pcb;
     session->state = TCPState_Connected;
 
@@ -425,7 +437,11 @@ static err_t TCPStreamAccept (void *arg, struct tcp_pcb *pcb, err_t err)
     tcp_sent(pcb, streamSent);
 
     // Switch I/O stream to Telnet connection
-    hal.stream_select(&telnet_stream);
+    if(hal.stream_select)
+        hal.stream_select(&telnet_stream);
+    else if(stream_connect(&telnet_stream))
+        session->stream = &telnet_stream;
+    // else abort connection?
 
     return ERR_OK;
 }
@@ -458,7 +474,7 @@ void TCPStreamClose (void)
     streamSession.linkLost = false;
 
     // Switch grbl I/O stream back to default
-    hal.stream_select(NULL);
+    streamClose(&streamSession);
 }
 
 void TCPStreamListen (uint16_t port)
