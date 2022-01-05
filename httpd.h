@@ -109,7 +109,7 @@ void httpd_free_pbuf (http_request_t *request, struct pbuf *p);
 void httpd_post_data_recved(void *connection, u16_t recved_len);
 #endif /* LWIP_HTTPD_POST_MANUAL_WND */
 
-void httpd_init (uint16_t port);
+bool httpd_init (uint16_t port);
 
 #if HTTPD_ENABLE_HTTPS
 struct altcp_tls_config;

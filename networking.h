@@ -67,11 +67,11 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #endif
 
 #if TELNET_ENABLE
-#include "TCPStream.h"
+#include "telnetd.h"
 #endif
 
 #if WEBSOCKET_ENABLE
-#include "WsStream.h"
+#include "websocketd.h"
 #endif
 
 #if FTP_ENABLE
@@ -121,6 +121,13 @@ typedef uint32_t TickType_t;
 #define SYS_ARCH_DECL_PROTECT(lev)
 
 #endif
+
+typedef struct
+{
+    uint16_t port;
+    bool link_lost;
+    struct tcp_pcb *pcb;
+} tcp_server_t;
 
 network_services_t networking_get_services_list (char *list);
 

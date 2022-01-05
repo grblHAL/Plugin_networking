@@ -2041,9 +2041,9 @@ static err_t http_accept (void *arg, struct altcp_pcb *pcb, err_t err)
     return ERR_OK;
 }
 
-static void httpd_init_pcb (struct altcp_pcb *pcb, u16_t port)
+static err_t httpd_init_pcb (struct altcp_pcb *pcb, u16_t port)
 {
-    err_t err;
+    err_t err = ERR_USE;
 
     if (pcb) {
         altcp_setprio(pcb, HTTPD_TCP_PRIO);
@@ -2055,13 +2055,15 @@ static void httpd_init_pcb (struct altcp_pcb *pcb, u16_t port)
         LWIP_ASSERT("httpd_init: tcp_listen failed", pcb != NULL);
         altcp_accept(pcb, http_accept);
     }
+
+    return err;
 }
 
 /**
  * @ingroup httpd
  * Initialize the httpd: set up a listening PCB and bind it to the defined port
  */
-void httpd_init (uint16_t port)
+bool httpd_init (uint16_t port)
 {
     struct altcp_pcb *pcb;
 
@@ -2077,7 +2079,8 @@ void httpd_init (uint16_t port)
 
     pcb = altcp_tcp_new_ip_type(IPADDR_TYPE_ANY);
     LWIP_ASSERT("httpd_init: tcp_new failed", pcb != NULL);
-    httpd_init_pcb(pcb, port);
+
+    return httpd_init_pcb(pcb, port) == ERR_OK;
 }
 
 #if HTTPD_ENABLE_HTTPS

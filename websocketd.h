@@ -1,12 +1,12 @@
 //
-// TCPStream.h - lwIP stream implementation
+// websocketd.h - lwIP websocket daemon implementation
 //
-// v1.7 / 2021-12-09 / Io Engineering / Terje
+// v2.0 / 2021-12-28 / Io Engineering / Terje
 //
 
 /*
 
-Copyright (c) 2018-2021, Terje Io
+Copyright (c) 2019-2021, Terje Io
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -36,13 +36,13 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 */
 
-#ifndef __TCPSTREAM_H__
-#define __TCPSTREAM_H__
+#ifndef __WSSTREAM_H__
+#define __WSSTREAM_H__
 
-void TCPStreamInit (void);
-void TCPStreamListen (uint16_t port);
-void TCPStreamPoll (void);
-void TCPStreamNotifyLinkStatus (bool bLinkStatusUp);
-void TCPStreamClose (void);
+bool websocketd_init (uint16_t port);
+void websocketd_poll (void);
+void websocketd_notify_link_status (bool link_up);
+bool websocketd_RxPutC (char c);
+void websocketd_stop (void);
 
 #endif

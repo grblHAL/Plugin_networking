@@ -32,7 +32,7 @@
  */
 
 /*
- * 2021-05-22: Modified by Terje Io for grblHAL networking
+ * 2021-12-28: Modified by Terje Io for grblHAL networking
  */
 
 /*
@@ -313,7 +313,7 @@ static void send_data (struct tcp_pcb *pcb, ftpd_datastate_t *fsd)
 
     if ((len = sfifo_used(&fsd->fifo)) > 0) {
 
-        int i = fsd->fifo.readpos;;
+        int i = fsd->fifo.readpos;
 
         /* We cannot send more data than space available in the send buffer. */
         len = tcp_sndbuf(pcb) < len ? tcp_sndbuf(pcb) : len;
@@ -1252,25 +1252,22 @@ void ftpd_poll (void)
 #endif
 }
 
-void ftpd_init (uint16_t port)
+bool ftpd_init (uint16_t port)
 {
-    struct tcp_pcb *pcb;
+    err_t err;
+    struct tcp_pcb *pcb = tcp_new();
 
-    vfs_load_plugin(vfs_default_fs);
+    if((err = tcp_bind(pcb, IP_ADDR_ANY, port)) == ERR_OK) {
 
-    pcb = tcp_new();
-    LWIP_DEBUGF(FTPD_DEBUG, ("ftpd_init: pcb: %x\n", pcb));
-#if FTPD_DEBUG
-    int r = tcp_bind(pcb, IP_ADDR_ANY, port);
-    LWIP_DEBUGF(FTPD_DEBUG, ("ftpd_init: tcp_bind: %d\n", r));
-#else
-    tcp_bind(pcb, IP_ADDR_ANY, port);
-#endif
-    pcb = tcp_listen(pcb);
-    LWIP_DEBUGF(FTPD_DEBUG, ("ftpd_init: listen-pcb: %x\n", pcb));
-    tcp_accept(pcb, ftpd_msgaccept);
+        vfs_load_plugin(vfs_default_fs);
 
-    sdcard_getfs();
+        pcb = tcp_listen(pcb);
+        tcp_accept(pcb, ftpd_msgaccept);
+
+        sdcard_getfs();
+    }
+
+    return err == ERR_OK;
 }
 
 #endif

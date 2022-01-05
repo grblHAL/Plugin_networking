@@ -1,12 +1,12 @@
 //
-// WsStream.h - lwIP websocket stream implementation
+// telnetd.h - lwIP "raw" telnet daemon
 //
-// v1.9 / 2021-12-09 / Io Engineering / Terje
+// v2.0 / 2021-12-28 / Io Engineering / Terje
 //
 
 /*
 
-Copyright (c) 2019-2021, Terje Io
+Copyright (c) 2018-2021, Terje Io
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -36,14 +36,12 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 */
 
-#ifndef __WSSTREAM_H__
-#define __WSSTREAM_H__
+#ifndef __TCPSTREAM_H__
+#define __TCPSTREAM_H__
 
-void WsStreamInit (void);
-void WsStreamListen (uint16_t port);
-void WsStreamPoll (void);
-void WsStreamNotifyLinkStatus (bool bLinkStatusUp);
-bool WsStreamRxInsert (char c);
-void WsStreamClose (void);
+bool telnetd_init (uint16_t port);
+void telnetd_poll (void);
+void telnetd_notify_link_status (bool link_up);
+void telnetd_stop (void);
 
 #endif

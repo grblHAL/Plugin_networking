@@ -34,7 +34,7 @@
 #ifndef __FTPD_H__
 #define __FTPD_H__
 
-void ftpd_init(uint16_t port);
-void ftpd_poll(void);
+bool ftpd_init (uint16_t port);
+void ftpd_poll (void);
 
 #endif              /* __FTPD_H__ */
