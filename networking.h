@@ -1,12 +1,12 @@
 //
 // networking.h - some shared networking code
 //
-// v1.3 / 2021-09-19 / Io Engineering / Terje
+// v1.4 / 2022-01-09 / Io Engineering / Terje
 //
 
 /*
 
-Copyright (c) 2019-2021, Terje Io
+Copyright (c) 2019-2022, Terje Io
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -36,8 +36,15 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 */
 
-#ifndef __NETWORKING_H__
-#define __NETWORKING_H__
+#pragma once
+
+#ifdef ARDUINO
+#include "../driver.h"
+#else
+#include "driver.h"
+#endif
+
+#if ETHERNET_ENABLE || WIFI_ENABLE
 
 //*****************************************************************************
 //
@@ -59,12 +66,6 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #endif
 
 //*****************************************************************************
-
-#ifdef ARDUINO
-#include "../driver.h"
-#else
-#include "driver.h"
-#endif
 
 #if TELNET_ENABLE
 #include "telnetd.h"
@@ -131,4 +132,4 @@ typedef struct
 
 network_services_t networking_get_services_list (char *list);
 
-#endif
+#endif // ETHERNET_ENABLE || WIFI_ENABLE

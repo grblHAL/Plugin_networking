@@ -1,12 +1,12 @@
 //
 // networking.c - some shared networking code
 //
-// v1.3 / 2021-06-08 / Io Engineering / Terje
+// v1.4 / 2022-01-09 / Io Engineering / Terje
 //
 
 /*
 
-Copyright (c) 2021, Terje Io
+Copyright (c) 2021-2022, Terje Io
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -36,9 +36,11 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 */
 
-#include <string.h>
-
 #include "networking.h"
+
+#if ETHERNET_ENABLE || WIFI_ENABLE
+
+#include <string.h>
 
 PROGMEM static char const *const service_names[] = {
     "Telnet,",
@@ -82,3 +84,5 @@ network_services_t networking_get_services_list (char *list)
 
     return *list != '\0' ? allowed_services : (network_services_t){0};
 }
+
+#endif // ETHERNET_ENABLE || WIFI_ENABLE
