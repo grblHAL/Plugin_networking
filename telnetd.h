@@ -1,12 +1,12 @@
 //
 // telnetd.h - lwIP "raw" telnet daemon
 //
-// v2.0 / 2021-12-28 / Io Engineering / Terje
+// v2.1 / 2022-01-31 / Io Engineering / Terje
 //
 
 /*
 
-Copyright (c) 2018-2021, Terje Io
+Copyright (c) 2018-2022, Terje Io
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -43,5 +43,6 @@ bool telnetd_init (uint16_t port);
 void telnetd_poll (void);
 void telnetd_notify_link_status (bool link_up);
 void telnetd_stop (void);
+void telnetd_close_connections (void);
 
 #endif

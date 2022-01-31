@@ -1,12 +1,12 @@
 //
 // telnetd.c - lwIP "raw" telnet daemon
 //
-// v2.0 / 2021-12-28 / Io Engineering / Terje
+// v2.1 / 2022-01-31 / Io Engineering / Terje
 //
 
 /*
 
-Copyright (c) 2018-2021, Terje Io
+Copyright (c) 2018-2022, Terje Io
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -516,6 +516,12 @@ void telnetd_notify_link_status (bool up)
 {
     if(!up)
         telnet_server.link_lost = true;
+}
+
+
+void telnetd_close_connections (void)
+{
+    streamClose(&streamSession);
 }
 
 void telnetd_stop (void)
