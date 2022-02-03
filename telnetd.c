@@ -1,7 +1,7 @@
 //
 // telnetd.c - lwIP "raw" telnet daemon
 //
-// v2.1 / 2022-01-31 / Io Engineering / Terje
+// v2.1 / 2022-02-03 / Io Engineering / Terje
 //
 
 /*
@@ -96,6 +96,7 @@ static const sessiondata_t defaultSettings =
 static tcp_server_t telnet_server;
 static sessiondata_t streamSession;
 static enqueue_realtime_command_ptr enqueue_realtime_command = protocol_enqueue_realtime_command;
+static portMUX_TYPE rx_mux = portMUX_INITIALIZER_UNLOCKED;
 
 static void telnet_stream_handler (sessiondata_t *session);
 
@@ -150,6 +151,9 @@ static bool streamRxPutC (char c)
 
     // discard input if MPG has taken over...
     if(!(mpg = hal.stream.type == StreamType_MPG)) {
+
+        taskENTER_CRITICAL(&rx_mux);
+
         if(!enqueue_realtime_command(c)) {                              // If not a real time command attempt to buffer it
             uint_fast16_t next_head = BUFNEXT(streamSession.rxbuf.head, streamSession.rxbuf);
             if(next_head == streamSession.rxbuf.tail)                   // If buffer full
@@ -159,6 +163,8 @@ static bool streamRxPutC (char c)
                 streamSession.rxbuf.head = next_head;                   // update pointer
             }
         }
+
+        taskEXIT_CRITICAL(&rx_mux);
     }
 
     return mpg || !streamSession.rxbuf.overflow;
@@ -284,25 +290,29 @@ static err_t telnet_poll (void *arg, struct tcp_pcb *pcb)
 {
     sessiondata_t *session = arg;
 
-    session->timeout++;
-
-    if(session->timeoutMax && session->timeout > session->timeoutMax)
-        tcp_abort(pcb);
+    if(!session)
+        tcp_close(pcb);
+    else {
+        session->timeout++;
+        if(session->timeoutMax && session->timeout > session->timeoutMax)
+            tcp_abort(pcb);
+    }
 
     return ERR_OK;
 }
 
 static void telnet_close_conn (sessiondata_t *session, struct tcp_pcb *pcb)
 {
+    telnet_state_free(session);
+
     tcp_arg(pcb, NULL);
     tcp_recv(pcb, NULL);
     tcp_sent(pcb, NULL);
     tcp_err(pcb, NULL);
     tcp_poll(pcb, NULL, 1);
 
-    tcp_close(pcb);
-
-    telnet_state_free(session);
+    if (tcp_close(pcb) != ERR_OK)
+        tcp_poll(pcb, telnet_poll, TELNETD_POLL_INTERVAL);
 
     session->pcb = NULL;
 
@@ -504,6 +514,7 @@ void telnet_stream_handler (sessiondata_t *session)
         } while(--len);
 
         tcp_write(session->pcb, txbuf, (u16_t)tx_len, TCP_WRITE_FLAG_COPY);
+        tcp_output(session->pcb);
     }
 }
 

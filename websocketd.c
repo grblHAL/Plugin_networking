@@ -1,7 +1,7 @@
 //
 // websocketd.c - lwIP websocket daemon implementation
 //
-// v2.1 / 2021-02-31 / Io Engineering / Terje
+// v2.1 / 2021-02-03 / Io Engineering / Terje
 //
 
 /*
@@ -196,6 +196,7 @@ static const ws_sessiondata_t defaultSettings =
 static tcp_server_t ws_server;
 static ws_sessiondata_t streamSession;
 static enqueue_realtime_command_ptr enqueue_realtime_command = protocol_enqueue_realtime_command;
+static portMUX_TYPE rx_mux = portMUX_INITIALIZER_UNLOCKED;
 
 //
 // streamGetC - returns -1 if no data available
@@ -248,6 +249,9 @@ bool websocketd_RxPutC (char c)
 
     // discard input if MPG has taken over...
     if((ok = streamSession.state == WsState_Connected && hal.stream.type != StreamType_MPG)) {
+
+        taskENTER_CRITICAL(&rx_mux);
+
         if(!enqueue_realtime_command(c)) {                          // If not a real time command attempt to buffer it
             uint_fast16_t next_head = BUFNEXT(streamSession.rxbuf.head, streamSession.rxbuf);
             if(next_head == streamSession.rxbuf.tail)               // If buffer full
@@ -255,6 +259,8 @@ bool websocketd_RxPutC (char c)
             streamSession.rxbuf.data[streamSession.rxbuf.head] = c; // add data to buffer
             streamSession.rxbuf.head = next_head;                   // and update pointer
         }
+
+        taskEXIT_CRITICAL(&rx_mux);
     }
 
     return ok && !streamSession.rxbuf.overflow;
@@ -986,7 +992,6 @@ static void websocket_stream_handler (ws_sessiondata_t *session)
         if(q == NULL) {
             pbuf_free(session->packet.p);
             session->packet.p = NULL;
-            websocket_stream_handler(session);
         } else {
             session->packet.q = q;
             session->packet.len = q->len - (payload - (uint8_t *)q->payload);

@@ -1,7 +1,7 @@
 //
 // networking.h - some shared networking code
 //
-// v1.4 / 2022-01-09 / Io Engineering / Terje
+// v1.4 / 2022-02-03 / Io Engineering / Terje
 //
 
 /*
@@ -113,6 +113,10 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 typedef uint32_t TickType_t;
 #define configTICK_RATE_HZ 1000
 #define xTaskGetTickCount() sys_now()
+#define portMUX_TYPE void*
+#define portMUX_INITIALIZER_UNLOCKED NULL
+#define taskENTER_CRITICAL(p) UNUSED(p)
+#define taskEXIT_CRITICAL(p) UNUSED(p)
 #endif
 
 #ifndef SYS_ARCH_PROTECT
