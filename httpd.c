@@ -415,7 +415,7 @@ static void http_remove_connection (struct http_state *hs)
     }
 }
 
-static voidhttp_kill_oldest_connection (u8_t ssi_required)
+static void http_kill_oldest_connection (u8_t ssi_required)
 {
     struct http_state *hs = http_connections;
     struct http_state *hs_free_next = NULL;
@@ -1446,8 +1446,7 @@ void httpd_post_data_recved(void *connection, u16_t recved_len)
 /** Try to send more data if file has been blocked before
  * This is a callback function passed to fs_read_async().
  */
-static void
-http_continue(void *connection)
+static void http_continue(void *connection)
 {
   struct http_state *hs = (struct http_state *)connection;
   LWIP_ASSERT_CORE_LOCKED();
@@ -2073,7 +2072,7 @@ bool httpd_init (uint16_t port)
     LWIP_MEMPOOL_INIT(HTTPD_SSI_STATE);
   #endif
 #endif
-  LWIP_DEBUGF(HTTPD_DEBUG, ("httpd_init\n"));
+    LWIP_DEBUGF(HTTPD_DEBUG, ("httpd_init\n"));
 
 /* LWIP_ASSERT_CORE_LOCKED(); is checked by tcp_new() */
 
