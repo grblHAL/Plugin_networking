@@ -1,7 +1,7 @@
 //
 // websocketd.c - lwIP websocket daemon implementation
 //
-// v2.1 / 2021-02-03 / Io Engineering / Terje
+// v2.1 / 2022-07-18 / Io Engineering / Terje
 //
 
 /*
@@ -521,6 +521,18 @@ static uint32_t websocket_msg_parse (ws_sessiondata_t *session, uint8_t *payload
                     // Unmask and add data to input buffer
                     uint_fast16_t i = session->header.rx_index;
                     session->rxbuf.overflow = false;
+#if WEBUI_ENABLE
+                    bool is_ping = false;
+
+                    if(payload_len >= 5) {
+                        uint8_t ping[5], *pm = payload;
+                        uint_fast16_t ii = i, j;
+                        for(j = 0; j < 5; j++)
+                            ping[j] = *pm++ ^ mask[ii++ % 4];
+                        is_ping = !memcmp(ping, "PING:", 5);
+                    }
+                    if(!is_ping)
+#endif
 
                     while (payload_len--) {
                         if(!websocketd_RxPutC(*payload++ ^ mask[i % 4]))
@@ -529,6 +541,12 @@ static uint32_t websocket_msg_parse (ws_sessiondata_t *session, uint8_t *payload
                         i++;
                     }
 
+#if WEBUI_ENABLE
+                    if(is_ping) {
+                        plen = 0;
+                        session->header.rx_index = session->header.payload_len;
+                    } else
+#endif
                     session->header.rx_index = i;
                     frame_done = (session->header.payload_rem = session->header.payload_len - session->header.rx_index) == 0;
                 }
