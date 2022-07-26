@@ -37,7 +37,7 @@
  */
 
 /*
- * 2021-09-13: Modified by Terje Io for grblHAL networking.
+ * 2022-25-07: Modified by Terje Io for grblHAL networking.
  */
 
 /**
@@ -538,6 +538,16 @@ static void http_state_free (struct http_state *hs)
     }
 }
 
+ip_addr_t http_get_remote_ip (http_request_t *request)
+{
+    return request ? ((http_state_t *)request->handle)->pcb->remote_ip : (ip_addr_t){0};
+}
+
+uint16_t http_get_remote_port (http_request_t *request)
+{
+    return request ? ((http_state_t *)request->handle)->pcb->remote_port : 0;
+}
+
 const char *http_get_uri (http_request_t *request)
 {
     return request ? ((http_state_t *)request->handle)->uri : NULL;
@@ -550,17 +560,18 @@ uint8_t http_get_param_count (http_request_t *request)
 
 char *http_get_param_value (http_request_t *request, const char *name, char *value, uint32_t size)
 {
+    bool found = false;
     http_state_t *hs = (http_state_t *)request->handle;
     uint_fast8_t idx = hs->param_count;
 
     *value = '\0';
 
     if(idx) do {
-        if(!strcmp(name, hs->params[--idx]))
+        if((found = strcmp(name, hs->params[--idx]) == 0))
             urldecode(value, hs->param_vals[idx]);
-    } while(idx && *value == '\0');
+    } while(idx && !found);
 
-    return *value == '\0' ? NULL : value;
+    return found ? value : NULL;
 }
 
 int http_get_header_value_len (http_request_t *request, const char *name)
@@ -1633,8 +1644,9 @@ static err_t http_parse_request (struct pbuf *inp, struct http_state *hs, struct
  */
 static err_t http_process_request (struct http_state *hs, const char *uri)
 {
-    struct fs_file *file = NULL;
+    bool match = false;
     char *params = NULL;
+    struct fs_file *file = NULL;
 
     if(hs->method == HTTP_Get) {
 
@@ -1686,8 +1698,6 @@ static err_t http_process_request (struct http_state *hs, const char *uri)
             *params = '\0';
             params++;
         }
-
-        bool match = false;
 
         /* Does the base URI we have isolated correspond to a handler? */
         if (num_uri_handlers) {
@@ -1751,10 +1761,10 @@ static err_t http_process_request (struct http_state *hs, const char *uri)
         }
     }
 
-    if (hs->method == HTTP_Get && file == NULL) /* None of the default filenames exist so send back a 404 page */
+    if((hs->method == HTTP_Get && file == NULL) || (hs->method == HTTP_Post && !match)) /* None of the default filenames exist so send back a 404 page */
         file = http_get_404_file(hs, &uri);
 
-    return hs->method == HTTP_Post ? ERR_OK : http_init_file(hs, file, uri, params);
+    return hs->method == HTTP_Post && match ? ERR_OK : http_init_file(hs, file, uri, params);
 }
 
 /** Initialize a http connection with a file to send (if found).

@@ -9,7 +9,7 @@ char *urldecode (char *dst, const char *src)
     uint8_t a, b;
     char *d = dst;
 
-    while (*src) {
+    if(src) while (*src) {
         if ((*src == '%') && ((a = src[1]) && (b = src[2])) && (isxdigit(a) && isxdigit(b))) {
             if (a >= 'a')
                 a -= 'a'-'A';

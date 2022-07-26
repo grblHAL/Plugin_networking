@@ -1,12 +1,12 @@
 //
 // fs.c - wrapper for vfs.c for use by httpd
 //
-// v0.2 / 2021-10-04 / Io Engineering / Terje
+// v0.3 / 2022-07-26 / Io Engineering / Terje
 //
 
 /*
 
-Copyright (c) 2021, Terje Io
+Copyright (c) 2021-2022, Terje Io
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -232,7 +232,7 @@ int fs_read (struct fs_file *file, char *buffer, int count)
 
 int fs_bytes_left (struct fs_file *file)
 {
-    return file->len;
+    return file->len + (file->is_custom_file ? txbuf.length : 0);
 }
 
 void fs_reset (void)

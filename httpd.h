@@ -39,7 +39,7 @@
  */
 
 /*
- * 2021-14-08: Modified by Terje Io for grblHAL networking
+ * 2022-25-07: Modified by Terje Io for grblHAL networking
  */
 
 #ifndef _HTTPD_H
@@ -96,6 +96,8 @@ typedef struct {
 
 uint8_t http_get_param_count (http_request_t *request);
 const char *http_get_uri (http_request_t *request);
+ip_addr_t http_get_remote_ip (http_request_t *request);
+uint16_t http_get_remote_port (http_request_t *request);
 char *http_get_param_value (http_request_t *request, const char *key, char *value, uint32_t size);
 int http_get_header_value_len (http_request_t *hs, const char *name);
 char *http_get_header_value (http_request_t *hs, const char *name, char *value, uint32_t size);
