@@ -53,6 +53,10 @@ static stream_block_tx_buffer_t txbuf = {0};
 
 static struct fs_file v_file = {0};
 
+#if LWIP_HTTPD_FILE_STATE
+static const char *txt_file = "cgi:qry.txt", *json_file = "cgi:qry.json";
+#endif
+
 static bool vf_write (void)
 {
     char *data = realloc((void *)v_file.data, v_file.len + txbuf.length);
@@ -124,6 +128,9 @@ struct fs_file *fs_create (void)
 
     v_file.len = 0;
     v_file.is_custom_file = true;
+#if LWIP_HTTPD_FILE_STATE
+    v_file.state = (void *)txt_file;
+#endif
     if(v_file.data) {
         free((void *)v_file.data);
         v_file.data = NULL;
@@ -235,6 +242,15 @@ int fs_bytes_left (struct fs_file *file)
     return file->len + (file->is_custom_file ? txbuf.length : 0);
 }
 
+#if LWIP_HTTPD_FILE_STATE
+
+void fs_file_is_json (struct fs_file *file)
+{
+    file->state = (void *)json_file;
+}
+
+#endif
+
 void fs_reset (void)
 {
     if(hal.stream.write == fs_write) {
@@ -253,4 +269,4 @@ void fs_register_embedded_files (const embedded_file_t **files)
     ro_files = files;
 }
 
-#endif
+#endif // HTTP_ENABLE
