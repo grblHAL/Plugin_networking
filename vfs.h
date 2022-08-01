@@ -27,7 +27,13 @@
 #ifndef INCLUDE_VFS_H
 #define INCLUDE_VFS_H
 
+#ifdef ARDUINO
 #include "../driver.h"
+#include "../grbl/platform.h"
+#else
+#include "driver.h"
+#include "grbl/platform.h"
+#endif
 
 #if FTP_ENABLE || HTTP_ENABLE
 
