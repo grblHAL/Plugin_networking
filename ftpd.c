@@ -56,6 +56,8 @@
 #include "ftpd.h"
 #include "sfifo.h"
 
+#include "../sdcard/sdcard.h"
+
 #ifndef FTPD_POLL_INTERVAL
 #define FTPD_POLL_INTERVAL 4
 #endif

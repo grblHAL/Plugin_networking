@@ -27,9 +27,25 @@
 #ifndef INCLUDE_VFS_H
 #define INCLUDE_VFS_H
 
-#include "../sdcard/sdcard.h"
+#include "../driver.h"
 
 #if FTP_ENABLE || HTTP_ENABLE
+
+#if defined(ESP_PLATFORM)
+#include "esp_vfs_fat.h"
+#elif defined(__LPC176x__) || defined(__MSP432E401Y__)
+#include "fatfs/ff.h"
+#include "fatfs/diskio.h"
+#elif defined(ARDUINO_SAMD_MKRZERO)
+#include "../../ff.h"
+#include "../../diskio.h"
+#elif defined(STM32_PLATFORM) || defined(__LPC17XX__) || defined(__IMXRT1062__) || defined(RP2040)
+#include "ff.h"
+#include "diskio.h"
+#else
+#include "fatfs/src/ff.h"
+#include "fatfs/src/diskio.h"
+#endif
 
 #include <stddef.h>
 #include <stdlib.h>

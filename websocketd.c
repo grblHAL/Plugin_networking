@@ -1,7 +1,7 @@
 //
 // websocketd.c - lwIP websocket daemon implementation
 //
-// v2.1 / 2022-07-18 / Io Engineering / Terje
+// v2.2 / 2022-07-31 / Io Engineering / Terje
 //
 
 /*
@@ -738,9 +738,26 @@ static err_t http_recv (void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t er
         .set_enqueue_rt_handler = streamSetRtHandler
     };
 
+    static const io_stream_t webui_stream = {
+        .type = StreamType_WebSocket,
+        .state.connected = true,
+        .state.webui_connected = true,
+        .read = streamGetC,
+        .write = streamWriteS,
+        .write_n = streamWrite,
+        .write_char = streamPutC,
+        .enqueue_rt_command = streamEnqueueRtCommand,
+        .get_rx_buffer_free = streamRxFree,
+        .reset_read_buffer = streamRxFlush,
+        .cancel_read_buffer = websocketd_RxCancel,
+        .suspend_read = streamSuspendInput,
+        .set_enqueue_rt_handler = streamSetRtHandler
+    };
+
     static uint32_t ptr = 0;
 
     ws_sessiondata_t *session = arg;
+    const io_stream_t *stream = &websocket_stream;
 
     bool hdr_ok;
 
@@ -828,13 +845,27 @@ static err_t http_recv (void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t er
 
                     memcpy(protocol, argp, strlen(argp) + 1);
 
-                    // Select the first protocol if more than one
-                    if((argp = strchr(protocol, ',')))
-                        *argp = '\0';
+                    bool p_webui = strlookup(protocol, "webui", ',') >= 0;
+                    bool p_arduino = strlookup(protocol, "arduino", ',') >= 0;
 
-                    // Switch to binary frames if protocol is: arduino
-                    if(!strcmp(protocol, "arduino"))
+                    // Switch to binary frames if protocol is arduino or webui
+                    if(p_webui || p_arduino) {
+
+                        *protocol = '\0';
                         session->ftype = wshdr_bin;
+
+                        if(p_arduino)
+                            strcat(protocol, "arduino");
+
+                        if(p_webui) {
+                            stream = &webui_stream;
+                            if(*protocol != '\0')
+                                strcat(protocol, ",");
+                            strcat(protocol, "webui");
+                        }
+
+                    } else if((argp = strchr(protocol, ','))) // Select the first protocol if more than one and not arduino or webui
+                        *argp = '\0';
                 }
 
                 *argend = c;
@@ -914,9 +945,9 @@ static err_t http_recv (void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t er
             tcp_recv(pcb, websocket_recv);
 
             if(hal.stream_select)
-                hal.stream_select(&websocket_stream);
-            else if(stream_connect(&websocket_stream))
-                session->stream = &websocket_stream;
+                hal.stream_select(stream);
+            else if(stream_connect(stream))
+                session->stream = stream;
             //else
             //  abort connection?
         } else
