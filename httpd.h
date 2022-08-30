@@ -39,21 +39,27 @@
  */
 
 /*
- * 2022-25-07: Modified by Terje Io for grblHAL networking
+ * 2022-08-14: Modified by Terje Io for grblHAL networking
+ * 2022-08-25: Modified by Terje Io for grblHAL VFS
  */
 
 #ifndef _HTTPD_H
 #define _HTTPD_H
+
+#include <stdbool.h>
 
 #include "lwip/init.h"
 #include "lwip/altcp.h"
 #if LWIP_ALTCP
 #include "lwip/altcp_tcp.h"
 #endif
-#include "lwip/apps/fs.h"
+#include "lwip/apps/httpd_opts.h"
+//#include "lwip/apps/fs.h"
 #if HTTPD_ENABLE_HTTPS
 #include "lwip/altcp_tls.h"
 #endif
+
+#include "grbl/vfs.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -65,10 +71,20 @@ extern "C" {
 #define LWIP_HTTPD_SUPPORT_POST 1
 
 typedef enum {
-    HTTP_Get = 0,
+    HTTP_Head = 0,
+    HTTP_Get,
+    HTTP_Put,
     HTTP_Post,
     HTTP_Delete,
-    HTTP_Options
+    HTTP_Options,
+// WebDAV verbs
+    HTTP_Copy,
+    HTTP_MkCol,
+    HTTP_Move,
+    HTTP_PropFind,
+    HTTP_PropPatch,
+    HTTP_Lock,
+    HTTP_Unlock,
 } http_method_t;
 
 typedef struct http_request {
@@ -79,6 +95,13 @@ typedef struct http_request {
     void (*on_request_completed)(void *private_data);
 } http_request_t;
 
+typedef struct
+{
+    void (*on_open_file_failed)(const char *uri, vfs_file_t **file, const char *mode);
+    err_t (*on_unknown_method_process)(http_request_t *request, http_method_t method, char *uri, u16_t uri_len);
+    void (*on_options_report)(http_request_t *request);
+} http_event_t;
+
 typedef const char *(*uri_handler_fn)(http_request_t *request);
 
 typedef struct {
@@ -88,11 +111,7 @@ typedef struct {
     void *private_data;
 } httpd_uri_handler_t;
 
-typedef struct {
-    const char *name;
-    size_t size;
-    const uint8_t data[];
-} embedded_file_t; // TODO: move to new vfs.c
+extern http_event_t httpd;
 
 uint8_t http_get_param_count (http_request_t *request);
 const char *http_get_uri (http_request_t *request);
@@ -105,7 +124,8 @@ bool http_set_response_header (http_request_t *request, const char *name, const 
 void http_set_response_status (http_request_t *request, const char *status);
 void httpd_register_uri_handlers (const httpd_uri_handler_t *httpd_uri_handlers, uint_fast8_t httpd_num_uri_handlers);
 void httpd_free_pbuf (http_request_t *request, struct pbuf *p);
-
+err_t http_get_payload (http_request_t *request, uint32_t len);
+void http_set_allowed_methods (const char *methods);
 
 #if LWIP_HTTPD_POST_MANUAL_WND
 void httpd_post_data_recved(void *connection, u16_t recved_len);

@@ -4,12 +4,13 @@ This plugin contains code for "stream based" network protocol support on top of 
 
 "stream based" in this context means that the HAL entry points for streaming are used as the API \(by dynamic pointer swapping on connect\).
 
-#### Protocols supported:
+#### Server protocols supported:
 
 * Telnet \("raw" mode\).
 * Websocket.
 * FTP \(requires [SD card plugin](https://github.com/grblHAL/Plugin_SD_card) and card inserted\).
 * HTTP \(requires [SD card plugin](https://github.com/grblHAL/Plugin_SD_card) and card inserted\).
+* WebDAV - as an extension the HTTP daemon. __Note:__ saving files does not yet work with Windows mounts. Tested ok with WinSCP.
 
 #### Dependencies:
 
@@ -53,4 +54,4 @@ __NOTE:__ this plugin is only for the protocol layer. Driver specific code is re
 ![Test](media/websocket.png)
 
 ---
-2021-09-19
+2022-08-30

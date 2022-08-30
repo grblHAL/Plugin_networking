@@ -37,7 +37,8 @@
  */
 
 /*
- * 2022-25-07: Modified by Terje Io for grblHAL networking.
+ * 2022-08-14: Modified by Terje Io for grblHAL networking.
+ * 2022-08-27: Modified by Terje Io for grblHAL VFS
  */
 
 /**
@@ -179,7 +180,12 @@ static const tHTTPHeader g_psHTTPHeaders[] = {
 
 #endif /* LWIP_HTTPD_DYNAMIC_HEADERS */
 
-#define HTTP_METHODS "GET,POST,DELETE,OPTIONS"
+// NOTE: Methods list must match http_method_t enumeration entries!
+#if LWIP_HTTPD_SUPPORT_POST
+#define HTTP_METHODS "HEAD,GET,,POST,,OPTIONS"
+#else
+#define HTTP_METHODS "HEAD,GET,,,,OPTIONS"
+#endif
 
 typedef enum {
     HTTP_Status200 = 200,
@@ -207,12 +213,13 @@ typedef struct http_state {
 #if LWIP_HTTPD_KILL_OLD_ON_CONNECTIONS_EXCEEDED
     struct http_state *next;
 #endif /* LWIP_HTTPD_KILL_OLD_ON_CONNECTIONS_EXCEEDED */
-    struct fs_file file_handle;
-    struct fs_file *handle;
+    vfs_file_t file_handle;
+    vfs_file_t *handle;
     const char *file;       /* Pointer to first unsent byte in buf. */
     const char *uri;       /* Pointer to uri. */
     const char *hdr;       /* Pointer to header. */
     u32_t hdr_len;
+    u32_t payload_offset;
     http_method_t method;
     struct altcp_pcb *pcb;
     u32_t left;       /* Number of unsent bytes in buf. */
@@ -327,10 +334,16 @@ typedef struct {
 } default_filename;
 
 static const default_filename httpd_default_filenames[] = {
-  {"/index.html",  0 },
-  {"/index.html.gz",   0 },
-  {"/index.htm",   0 }
+#if WEBUI_ENABLE
+    {"/www/index.html.gz",  0 },
+    {"/embedded/index.html.gz",  0 },
+#endif
+    {"/index.html",  0 },
+    {"/index.html.gz",   0 },
+    {"/index.htm",   0 }
 };
+
+http_event_t httpd = {0};
 
 static const char *msg200 = "HTTP/1.1 200 OK" CRLF;
 static const char *msg400 = "HTTP/1.1 400 Bad Request" CRLF;
@@ -342,6 +355,7 @@ static const char *conn_keep = "Connection: keep-alive" CRLF CRLF;
 static const char *conn_keep2 = "Connection: keep-alive" CRLF "Content-Length: ";
 //static const char *cont_len = "Content-Length: ";
 static const char *rsp404 = "<html><body><h2>404: The requested file cannot be found.</h2></body></html>" CRLF;
+static const char *http_methods = HTTP_METHODS;
 
 #define NUM_DEFAULT_FILENAMES LWIP_ARRAYSIZE(httpd_default_filenames)
 
@@ -372,7 +386,7 @@ LWIP_MEMPOOL_DECLARE(HTTPD_STATE,     MEMP_NUM_PARALLEL_HTTPD_CONNS,     sizeof(
 
 static err_t http_close_conn (struct altcp_pcb *pcb, struct http_state *hs);
 static err_t http_close_or_abort_conn (struct altcp_pcb *pcb, struct http_state *hs, u8_t abort_conn);
-static err_t http_init_file (struct http_state *hs, struct fs_file *file, const char *uri, char *params);
+static err_t http_init_file (struct http_state *hs, vfs_file_t *file, const char *uri, char *params);
 static err_t http_poll (void *arg, struct altcp_pcb *pcb);
 static bool http_check_eof (struct altcp_pcb *pcb, struct http_state *hs);
 static err_t http_process_request (struct http_state *hs, const char *uri);
@@ -381,8 +395,6 @@ static void http_continue (void *connection);
 #endif /* LWIP_HTTPD_FS_ASYNC_READ */
 
 /* URI handler information */
-#define http_uri_params     hs->params
-#define http_uri_param_vals hs->param_vals
 static const httpd_uri_handler_t *uri_handlers;
 static uint_fast8_t num_uri_handlers;
 
@@ -498,7 +510,7 @@ static void http_state_eof (struct http_state *hs)
         LWIP_DEBUGF(HTTPD_DEBUG_TIMING, ("httpd: needed %"U32_F" ms to send file of %d bytes -> %"U32_F" bytes/sec\n",
                                          ms_needed, hs->handle->len, ((((u32_t)hs->handle->len) * 10) / needed)));
 #endif /* LWIP_HTTPD_TIMING */
-        fs_close(hs->handle);
+        vfs_close(hs->handle);
         hs->handle = NULL;
     }
 
@@ -522,6 +534,11 @@ static void http_state_eof (struct http_state *hs)
         pbuf_free(hs->req);
         hs->req = NULL;
     }
+}
+
+void http_set_allowed_methods (const char *methods)
+{
+    http_methods = methods;
 }
 
 /** Free a struct http_state.
@@ -698,7 +715,7 @@ static err_t http_close_or_abort_conn (struct altcp_pcb *pcb, struct http_state 
             #endif /* LWIP_HTTPD_POST_MANUAL_WND */
         ) {
             /* make sure the post code knows that the connection is closed */
-            http_uri_buf[0] = 0;
+            *http_uri_buf = '\0';
             hs->request.post_finished(&hs->request, http_uri_buf, LWIP_HTTPD_URI_BUF_LEN);
         }
     }
@@ -769,12 +786,10 @@ static void http_eof (struct altcp_pcb *pcb, struct http_state *hs)
  * @param params pointer to the NULL-terminated parameter string from the URI
  * @return number of parameters extracted
  */
-static int extract_uri_parameters (struct http_state *hs, char *params)
+static uint_fast8_t extract_uri_parameters (struct http_state *hs, char *params)
 {
     char *pair, *equals;
     uint_fast8_t loop;
-
-    LWIP_UNUSED_ARG(hs);
 
     /* If we have no parameters at all, return immediately. */
     if (!params || (params[0] == '\0'))
@@ -787,7 +802,7 @@ static int extract_uri_parameters (struct http_state *hs, char *params)
     for (loop = 0; (loop < LWIP_HTTPD_MAX_CGI_PARAMETERS) && pair; loop++) {
 
         /* Save the name of the parameter */
-        http_uri_params[loop] = pair;
+        hs->params[loop] = pair;
 
         /* Remember the start of this name=value pair */
         equals = pair;
@@ -808,9 +823,9 @@ static int extract_uri_parameters (struct http_state *hs, char *params)
         /* Now find the '=' in the previous pair, replace it with '\0' and save the parameter value string. */
         if ((equals = strchr(equals, '='))) {
             *equals = '\0';
-            http_uri_param_vals[loop] = equals + 1;
+            hs->param_vals[loop] = equals + 1;
         } else
-            http_uri_param_vals[loop] = NULL;
+            hs->param_vals[loop] = NULL;
     }
 
     return loop;
@@ -976,7 +991,7 @@ static void get_http_headers (struct http_state *hs, const char *uri)
             set_content_type(hs, uri);
         }
 
-    } else
+    } else if(uri)
         set_content_type(hs, uri);
 
     /* Set up to send the first header string. */
@@ -998,8 +1013,15 @@ static http_send_state_t http_send_headers (struct altcp_pcb *pcb, struct http_s
     u16_t len, hdrlen, sendlen;
     http_send_state_t data_to_send = HTTPSend_NoData;
 
-    if (!is_response_header_set(hs, "Content-Length"))
-        get_http_content_length(hs, (hs->handle != NULL) && (hs->handle->flags & FS_FILE_FLAGS_HEADER_PERSISTENT) ? hs->handle->len : -1);
+    if (!is_response_header_set(hs, "Content-Length")) {
+        get_http_content_length(hs, hs->handle != NULL ? hs->handle->size : -1);
+//        get_http_content_length(hs, (hs->handle != NULL) && (hs->handle->flags & FS_FILE_FLAGS_HEADER_PERSISTENT) ? hs->handle->len : -1);
+    }
+
+    if(hs->method == HTTP_Head && hs->handle) {
+        vfs_close(hs->handle);
+        hs->handle = NULL;
+    }
 
     /* How much data can we send? */
     len = sendlen = altcp_sndbuf(pcb);
@@ -1099,7 +1121,7 @@ static bool http_check_eof (struct altcp_pcb *pcb, struct http_state *hs)
         return false;
     }
 
-    if ((bytes_left = fs_bytes_left(hs->handle)) <= 0) {
+    if ((bytes_left = hs->handle->size - vfs_tell(hs->handle)) <= 0) {
         /* We reached the end of the file so this request is done. */
         LWIP_DEBUGF(HTTPD_DEBUG, ("End of file.\n"));
         http_eof(pcb, hs);
@@ -1145,10 +1167,10 @@ static bool http_check_eof (struct altcp_pcb *pcb, struct http_state *hs)
 #if LWIP_HTTPD_FS_ASYNC_READ
     count = fs_read_async(hs->handle, hs->buf, count, http_continue, hs);
 #else /* LWIP_HTTPD_FS_ASYNC_READ */
-    count = fs_read(hs->handle, hs->buf, count);
+    count = vfs_read(hs->buf, 1, count, hs->handle);
 #endif /* LWIP_HTTPD_FS_ASYNC_READ */
-    if (count < 0) {
-        if (count == FS_READ_DELAYED) {
+    if (vfs_errno) {
+        if (count == -2 /* FS_READ_DELAYED*/) {
             /* Delayed read, wait for FS to unblock us */
             return false;
         }
@@ -1244,7 +1266,7 @@ static http_send_state_t http_send (struct altcp_pcb *pcb, struct http_state *hs
 
     data_to_send = http_send_data_nonssi(pcb, hs);
 
-    if ((hs->left == 0) && (fs_bytes_left(hs->handle) <= 0)) {
+    if(hs->left == 0 && vfs_eof(hs->handle)) {
         /* We reached the end of the file so this request is done.
         * This adds the FIN flag right into the last data segment. */
         LWIP_DEBUGF(HTTPD_DEBUG, ("End of file.\n"));
@@ -1268,6 +1290,7 @@ static http_send_state_t http_send (struct altcp_pcb *pcb, struct http_state *hs
  */
 static err_t http_find_error_file (struct http_state *hs, u16_t error_nr)
 {
+    vfs_file_t *file;
     const char *uri, *uri1, *uri2, *uri3;
 
     if (error_nr == 501) {
@@ -1305,32 +1328,31 @@ static err_t http_find_error_file (struct http_state *hs, u16_t error_nr)
  * @param uri pointer that receives the actual file name URI
  * @return file struct for the error page or NULL no matching file was found
  */
-static struct fs_file *http_get_404_file (struct http_state *hs, const char **uri)
+static vfs_file_t *http_get_404_file (struct http_state *hs, const char **uri)
 {
-    err_t err;
+    vfs_file_t *file;
 
     *uri = "/404.html";
-    if ((err = fs_open(&hs->file_handle, *uri)) != ERR_OK) {
+    if ((file = vfs_open(*uri, "r")) == NULL) {
         /* 404.html doesn't exist. Try 404.htm instead. */
         *uri = "/404.htm";
-        err = fs_open(&hs->file_handle, *uri);
+        file = vfs_open(*uri, "r");
     }
 
-    if (err != ERR_OK) {
+    if (file == NULL) {
         /* 404.htm doesn't exist either. Try 404.shtml instead. */
         *uri = "/404.shtml";
-        err = fs_open(&hs->file_handle, *uri);
+        file = vfs_open(*uri, "r");
     }
 
-    if (err != ERR_OK) {
+    if (file == NULL) {
         /* 404.htm doesn't exist either. Indicate to the caller that it should
         * send back a default 404 page.
         */
         *uri = NULL;
-        return NULL;
     }
 
-    return &hs->file_handle;
+    return file;
 }
 
 static err_t http_handle_post_finished (struct http_state *hs)
@@ -1349,13 +1371,14 @@ static err_t http_handle_post_finished (struct http_state *hs)
     hs->request.post_finished(&hs->request, http_uri_buf, LWIP_HTTPD_URI_BUF_LEN);
 
     const char *uri = NULL;
-    struct fs_file *file = NULL;
+    vfs_file_t *file = NULL;
 
     if(*http_uri_buf == '\0')
         get_http_headers(hs, NULL);
     else {
         uri = http_uri_buf;
-        file = fs_open(&hs->file_handle, uri) == ERR_OK ? &hs->file_handle : http_get_404_file(hs, &uri);
+        if((file = vfs_open(uri, "r")) == NULL)
+            file = http_get_404_file(hs, &uri);
     }
 
     return uri ? http_init_file(hs, file, uri, NULL) : ERR_OK;
@@ -1473,6 +1496,46 @@ static void http_continue(void *connection)
 }
 #endif /* LWIP_HTTPD_FS_ASYNC_READ */
 
+err_t http_get_payload (http_request_t *request, uint32_t len)
+{
+    http_state_t *hs = (http_state_t *)request->handle;
+
+    if((hs->post_content_len_left = len) > 0) {
+
+        struct pbuf *q = hs->req;
+        u16_t start_offset = hs->payload_offset;
+
+        /* get to the pbuf where the body starts */
+        while ((q != NULL) && (q->len <= start_offset)) {
+            start_offset -= q->len;
+            q = q->next;
+        }
+
+        if (q != NULL) {
+            /* hide the remaining HTTP header */
+#if LWIP_VERSION_MAJOR > 1 && LWIP_VERSION_MINOR > 0
+            pbuf_remove_header(q, start_offset);
+#else
+            pbuf_header(q, -(s16_t)start_offset);
+#endif
+#if LWIP_HTTPD_POST_MANUAL_WND
+            if (!post_auto_wnd) {
+                /* already tcp_recved() this data... */
+                hs->unrecved_bytes = q->tot_len;
+            }
+#endif /* LWIP_HTTPD_POST_MANUAL_WND */
+            pbuf_ref(q);
+            return http_post_rxpbuf(hs, q);
+        } else if (hs->post_content_len_left == 0) {
+            q = pbuf_alloc(PBUF_RAW, 0, PBUF_REF);
+            return http_post_rxpbuf(hs, q);
+        } else
+            return ERR_OK;
+    }
+
+    return ERR_OK;
+}
+
 /**
  * When data has been received in the correct state, try to parse it as a HTTP request.
  *
@@ -1538,17 +1601,14 @@ static err_t http_parse_request (struct pbuf *inp, struct http_state *hs, struct
         int32_t method = -1;
         if((sp1 = strchr(data, ' '))) {
             *sp1 = '\0';
-            method = strlookup(data, HTTP_METHODS, ',');
+            method = strlookup(data, http_methods, ',');
             if(method >= 0)
                 hs->method = (http_method_t)method;
         }
 
-        if ((http_method_t)method == HTTP_Get) {
+        if ((http_method_t)method >= 0) {
             /* received GET request */
-            LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("Received GET request\"\n"));
-        } else if ((http_method_t)method == HTTP_Post) {
-            /* received POST request */
-            LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("Received POST request\n"));
+            LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("Received %s request\"\n", data));
         } else {
             /* unsupported method! */
             LWIP_DEBUGF(HTTPD_DEBUG, ("Unsupported request method (not implemented): \"%s\"\n", data));
@@ -1562,7 +1622,7 @@ static err_t http_parse_request (struct pbuf *inp, struct http_state *hs, struct
         sp2 = lwip_strnstr(sp1 + 1, " ", left_len);
 
         uri_len = (u16_t)(sp2 - (sp1 + 1));
-        if ((sp2 != 0) && (sp2 > sp1)) {
+        if ((sp2 != NULL) && (sp2 > sp1)) {
             char *crlfcrlf;
             /* wait for CRLFCRLF (indicating end of HTTP headers) before parsing anything */
             if ((crlfcrlf = lwip_strnstr(data, CRLF CRLF, data_len)) != NULL) {
@@ -1574,13 +1634,22 @@ static err_t http_parse_request (struct pbuf *inp, struct http_state *hs, struct
                                    lwip_strnstr(data, HTTP11_CONNECTIONKEEPALIVE2, data_len)));
 #endif /* LWIP_HTTPD_SUPPORT_11_KEEPALIVE */
                 /* null-terminate the METHOD (pbuf is freed anyway when returning) */
-                *sp1 = 0;
+                *sp1 = '\0';
                 uri[uri_len] = '\0';
                 LWIP_DEBUGF(HTTPD_DEBUG, ("Received \"%s\" request for URI: \"%s\"\n", data, uri));
 
-                hs->hdr = sp2 + 1;
-                hs->hdr_len = crlfcrlf - data + 4;
-
+                hs->hdr = strstr(sp2 + 1, CRLF) + 2;
+                hs->hdr_len = crlfcrlf - hs->hdr + 4;
+                hs->payload_offset = crlfcrlf - data + 4;
+/*
+                hal.stream.write(uri);
+                hal.stream.write(" - ");
+                hal.stream.write(uitoa(hs->method));
+                hal.stream.write(ASCII_EOL);
+                hal.stream.write_n(hs->hdr, hs->hdr_len);
+                hal.stream.write("!");
+                hal.stream.write(ASCII_EOL);
+*/
 #if LWIP_HTTPD_DYNAMIC_HEADERS
                 memset(&hs->response_hdr, 0, sizeof(http_headers_t));
                 hs->response_hdr.string[HDR_STRINGS_IDX_SERVER_NAME] = agent;   // In all cases, the second header we send is the server identification so set it here.
@@ -1644,127 +1713,191 @@ static err_t http_parse_request (struct pbuf *inp, struct http_state *hs, struct
  */
 static err_t http_process_request (struct http_state *hs, const char *uri)
 {
-    bool match = false;
     char *params = NULL;
-    struct fs_file *file = NULL;
+    vfs_file_t *file = NULL;
+    err_t ret = ERR_OK;
+    const httpd_uri_handler_t *uri_handler = NULL;
 
-    if(hs->method == HTTP_Get) {
+    if(num_uri_handlers) {
 
-        size_t loop;
-        /* Have we been asked for the default file (in root or a directory) ? */
-#if LWIP_HTTPD_MAX_REQUEST_URI_LEN
-        size_t uri_len = strlen(uri);
-        if ((uri_len > 0) && (uri[uri_len - 1] == '/') && ((uri != http_uri_buf) || (uri_len == 1))) {
-            size_t copy_len = LWIP_MIN(sizeof(http_uri_buf) - 1, uri_len - 1);
-            if (copy_len > 0) {
-                MEMCPY(http_uri_buf, uri, copy_len);
-                http_uri_buf[copy_len] = '\0';
-            }
-#else /* LWIP_HTTPD_MAX_REQUEST_URI_LEN */
-        if ((uri[0] == '/') &&  (uri[1] == '\0')) {
-#endif /* LWIP_HTTPD_MAX_REQUEST_URI_LEN */
-            /* Try each of the configured default filenames until we find one that exists. */
-            for (loop = 0; loop < NUM_DEFAULT_FILENAMES; loop++) {
-                const char *file_name;
-#if LWIP_HTTPD_MAX_REQUEST_URI_LEN
-                if (copy_len > 0) {
-                    size_t len_left = sizeof(http_uri_buf) - copy_len - 1;
-                        if (len_left > 0) {
-                            size_t name_len = strlen(httpd_default_filenames[loop].name);
-                            size_t name_copy_len = LWIP_MIN(len_left, name_len);
-                            MEMCPY(&http_uri_buf[copy_len], httpd_default_filenames[loop].name, name_copy_len);
-                            http_uri_buf[copy_len + name_copy_len] = 0;
-                        }
-                    file_name = http_uri_buf;
-                } else
-#endif /* LWIP_HTTPD_MAX_REQUEST_URI_LEN */
-                file_name = httpd_default_filenames[loop].name;
-                LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("Looking for %s...\n", file_name));
-                if (fs_open(&hs->file_handle, file_name) == ERR_OK) {
-                    uri = file_name;
-                    file = &hs->file_handle;
-                    LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("Opened.\n"));
-                    break;
-                }
-            }
-        }
-    }
-
-    if (file == NULL) {
-        /* No - we've been asked for a specific file. */
         /* First, isolate the base URI (without any parameters) */
-        if ((params = strchr(uri, '?'))) {
-            /* URI contains parameters. NULL-terminate the base URI */
+        if((params = strchr(uri, '?'))) /* URI contains parameters. NULL-terminate the base URI */
             *params = '\0';
-            params++;
-        }
 
         /* Does the base URI we have isolated correspond to a handler? */
-        if (num_uri_handlers) {
 
-            uint_fast8_t i;
-            for (i = 0; i < num_uri_handlers; i++) {
+        uint_fast8_t i;
+        bool match = false;
 
-                uint_fast8_t len = strlen(uri_handlers[i].uri);
-                match = !(uri_handlers[i].uri[len - 1] == '*' ? strncmp(uri, uri_handlers[i].uri, len - 1) : strcmp(uri, uri_handlers[i].uri));
+        urldecode((char *)uri, uri);
 
-                if ((match = (match && uri_handlers[i].method == hs->method))) {
-                    /* We found a handler that handles this URI so extract the parameters and call it. */
-                    hs->uri = uri + len - 2;
-                    hs->param_count = extract_uri_parameters(hs, params);
-                    uri = uri_handlers[i].handler(&hs->request);
-                    break;
-                }
+        for (i = 0; i < num_uri_handlers; i++) {
+
+            uint_fast8_t len = strlen(uri_handlers[i].uri);
+            match = !(uri_handlers[i].uri[len - 1] == '*' ? strncmp(uri, uri_handlers[i].uri, len - 1) : strcmp(uri, uri_handlers[i].uri));
+
+            if ((match = (match && uri_handlers[i].method == hs->method))) {
+                /* We found a handler that handles this URI so extract the parameters and call it. */
+                hs->param_count = extract_uri_parameters(hs, params ? params + 1 : NULL);
+                uri_handler = &uri_handlers[i];
+                break;
             }
         }
 
-        if(match && hs->method == HTTP_Post) {
-
-            if(uri == NULL && hs->post_content_len_left > 0) {
-
-                struct pbuf *q = hs->req;
-                u16_t start_offset = hs->hdr_len;
-
-                /* get to the pbuf where the body starts */
-                while ((q != NULL) && (q->len <= start_offset)) {
-                    start_offset -= q->len;
-                    q = q->next;
-                }
-
-                if (q != NULL) {
-                    /* hide the remaining HTTP header */
-#if LWIP_VERSION_MAJOR > 1 && LWIP_VERSION_MINOR > 0
-                    pbuf_remove_header(q, start_offset);
-#else
-                    pbuf_header(q, -(s16_t)start_offset);
-#endif
-#if LWIP_HTTPD_POST_MANUAL_WND
-                    if (!post_auto_wnd) {
-                        /* already tcp_recved() this data... */
-                        hs->unrecved_bytes = q->tot_len;
-                    }
-#endif /* LWIP_HTTPD_POST_MANUAL_WND */
-                    pbuf_ref(q);
-                    return http_post_rxpbuf(hs, q);
-                } else if (hs->post_content_len_left == 0) {
-                    q = pbuf_alloc(PBUF_RAW, 0, PBUF_REF);
-                    return http_post_rxpbuf(hs, q);
-                } else
-                    return ERR_OK;
-            }
-        }
-
-        if(hs->method == HTTP_Get) {
-            LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("Opening %s\n", uri));
-
-            file = fs_open(&hs->file_handle, uri) == ERR_OK ? &hs->file_handle : http_get_404_file(hs, &uri);
+        if(params) {
+            char *s1 = strchr(uri, '\0'), *s2 = params + 1;
+            *s1++ = '?';
+            while(*s2)
+                *s1++ = *s2++;
+            *s1 = '\0';
+            params = strchr(uri, '?');
         }
     }
 
-    if((hs->method == HTTP_Get && file == NULL) || (hs->method == HTTP_Post && !match)) /* None of the default filenames exist so send back a 404 page */
-        file = http_get_404_file(hs, &uri);
+    switch(hs->method) {
 
-    return hs->method == HTTP_Post && match ? ERR_OK : http_init_file(hs, file, uri, params);
+        case HTTP_Get:;
+            size_t loop;
+            /* Have we been asked for the default file (in root or a directory) ? */
+    #if LWIP_HTTPD_MAX_REQUEST_URI_LEN
+            size_t uri_len = strlen(uri);
+            if ((uri_len > 0) && (uri[uri_len - 1] == '/') && ((uri != http_uri_buf) || (uri_len == 1))) {
+                size_t copy_len = LWIP_MIN(sizeof(http_uri_buf) - 1, uri_len - 1);
+                if (copy_len > 0) {
+                    MEMCPY(http_uri_buf, uri, copy_len);
+                    http_uri_buf[copy_len] = '\0';
+                }
+    #else /* LWIP_HTTPD_MAX_REQUEST_URI_LEN */
+            if ((uri[0] == '/') &&  (uri[1] == '\0')) {
+    #endif /* LWIP_HTTPD_MAX_REQUEST_URI_LEN */
+                /* Try each of the configured default filenames until we find one that exists. */
+                for (loop = 0; loop < NUM_DEFAULT_FILENAMES; loop++) {
+                    const char *file_name;
+    #if LWIP_HTTPD_MAX_REQUEST_URI_LEN
+                    if (copy_len > 0) {
+                        size_t len_left = sizeof(http_uri_buf) - copy_len - 1;
+                            if (len_left > 0) {
+                                size_t name_len = strlen(httpd_default_filenames[loop].name);
+                                size_t name_copy_len = LWIP_MIN(len_left, name_len);
+                                MEMCPY(&http_uri_buf[copy_len], httpd_default_filenames[loop].name, name_copy_len);
+                                http_uri_buf[copy_len + name_copy_len] = 0;
+                            }
+                        file_name = http_uri_buf;
+                    } else
+    #endif /* LWIP_HTTPD_MAX_REQUEST_URI_LEN */
+                    file_name = httpd_default_filenames[loop].name;
+                    LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("Looking for %s...\n", file_name));
+                    if ((file = vfs_open(file_name, "r")) != NULL) {
+                        uri = file_name;
+                        LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("Opened.\n"));
+                        break;
+                    }
+                }
+            }
+            if(file == NULL && uri_handler) {
+                if(params)
+                    *params = '\0'; /* URI contains parameters. NULL-terminate the base URI */
+                hs->uri = uri + strlen(uri_handler->uri) - 2;
+                uri = uri_handler->handler(&hs->request);
+            }
+            break;
+
+        case HTTP_Options:
+            {
+                char c, *s1, *s2, *allow;
+                uint32_t len = strlen(http_methods);
+
+                http_set_response_status(&hs->request, "200 OK");
+
+                if((allow = s2 = malloc(len + 1))) {
+                    s1 = (char *)http_methods;
+                    while(*s1 == ',')
+                        s1++;
+
+                    while((c = *s1++)) {
+                        if(!(c == ',' && *s1 == ','))
+                            *s2++ = c;
+                    }
+                    *s2 = '\0';
+
+                    http_set_response_header(&hs->request, "Allow", allow);
+                    free(allow);
+                } else {
+#if LWIP_HTTPD_SUPPORT_POST
+                    http_set_response_header(&hs->request, "Allow", "GET,POST,OPTIONS");
+#else
+                    http_set_response_header(&hs->request, "Allow", "GET,OPTIONS");
+#endif
+                }
+
+                if(httpd.on_options_report)
+                    httpd.on_options_report(&hs->request);
+            }
+            return http_init_file(hs, NULL, uri, params); //ERR_OK;
+            break;
+
+        default:
+            if(uri_handler) {
+                if(params)
+                    *params = '\0'; /* URI contains parameters. NULL-terminate the base URI */
+                hs->uri = uri + strlen(uri_handler->uri) - 2;
+                uri = uri_handler->handler(&hs->request);
+            } else if(httpd.on_unknown_method_process) {
+
+                size_t uri_len = strlen(uri);
+                if(uri_len > 0) {
+                    size_t copy_len = LWIP_MIN(sizeof(http_uri_buf) - 1, uri_len);
+                    if (copy_len > 0) {
+                        MEMCPY(http_uri_buf, uri, copy_len);
+                        http_uri_buf[copy_len] = '\0';
+                    }
+                } else
+                    *http_uri_buf = '\0';
+
+                if((ret = httpd.on_unknown_method_process(&hs->request, hs->method, http_uri_buf, LWIP_HTTPD_URI_BUF_LEN)) == ERR_OK) {
+                    if(*http_uri_buf != '\0') {
+                        uri = http_uri_buf;
+                        if((file = vfs_open(uri, "r")) == NULL)
+                            file = http_get_404_file(hs, &uri);
+                    }
+                }
+            }
+            break;
+    }
+
+    if(file == NULL) switch(hs->method) {
+
+        case HTTP_Get:
+        case HTTP_Head:
+            if(uri) {
+                if(params)
+                    *params = '\0'; /* URI contains parameters. NULL-terminate the base URI */
+                LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("Opening %s\n", uri));
+                if((file = vfs_open(uri, "r")) == NULL) {
+                    if(httpd.on_open_file_failed)
+                        httpd.on_open_file_failed(uri, &file, "r");
+                }
+            }
+            if(file == NULL)
+                file = http_get_404_file(hs, &uri);
+            break;
+
+        case HTTP_Post:
+            if(uri_handler) {
+                if(hs->request.post_receive_data == NULL || hs->request.post_finished == NULL) {
+                    // Internal server error!
+                }
+                if(uri == NULL && hs->post_content_len_left > 0)
+                    return http_get_payload(&hs->request, hs->post_content_len_left);
+            } else
+                file = http_get_404_file(hs, &uri);
+            break;
+
+        default:
+            break;
+    }
+
+    return hs->method == HTTP_Post && uri_handler ? ERR_OK : http_init_file(hs, file, uri, params);
 }
 
 /** Initialize a http connection with a file to send (if found).
@@ -1778,7 +1911,7 @@ static err_t http_process_request (struct http_state *hs, const char *uri)
  * @return ERR_OK if file was found and hs has been initialized correctly
  *         another err_t otherwise
  */
-static err_t http_init_file (struct http_state *hs, struct fs_file *file, const char *uri, char *params)
+static err_t http_init_file (struct http_state *hs, vfs_file_t *file, const char *uri, char *params)
 {
     LWIP_UNUSED_ARG(params);
 
@@ -1790,16 +1923,17 @@ static err_t http_init_file (struct http_state *hs, struct fs_file *file, const 
 #endif
 
         hs->handle = file;
+        hs->file = NULL;
 
-        hs->file = file->data;
-        LWIP_ASSERT("File length must be positive!", (file->len >= 0));
+//        hs->file = file->data;
+        LWIP_ASSERT("File length must be positive!", (file->size >= 0));
 #if LWIP_HTTPD_CUSTOM_FILES
         if (file->is_custom_file && (file->data == NULL))
             /* custom file, need to read data first (via fs_read_custom) */
             hs->left = 0;
         else
 #endif /* LWIP_HTTPD_CUSTOM_FILES */
-            hs->left = (u32_t)file->len;
+            hs->left = (u32_t)file->size;
 
         hs->retries = 0;
 
@@ -1818,7 +1952,7 @@ static err_t http_init_file (struct http_state *hs, struct fs_file *file, const 
     }
 #if LWIP_HTTPD_DYNAMIC_HEADERS
     /* Determine the HTTP headers to send based on the file extension of the requested URI. */
-    if ((hs->handle == NULL) || ((hs->handle->flags & FS_FILE_FLAGS_HEADER_INCLUDED) == 0))
+//    if ((hs->handle == NULL) /* || ((hs->handle->flags & FS_FILE_FLAGS_HEADER_INCLUDED) == 0)*/)
         get_http_headers(hs, uri);
 #else /* LWIP_HTTPD_DYNAMIC_HEADERS */
         LWIP_UNUSED_ARG(uri);
@@ -1831,8 +1965,8 @@ static err_t http_init_file (struct http_state *hs, struct fs_file *file, const 
             hs->keepalive = 0;
         else
   #endif /* LWIP_HTTPD_SSI */
-        if ((hs->handle != NULL) && ((hs->handle->flags & (FS_FILE_FLAGS_HEADER_INCLUDED | FS_FILE_FLAGS_HEADER_PERSISTENT)) == FS_FILE_FLAGS_HEADER_INCLUDED))
-            hs->keepalive = 0;
+//        if ((hs->handle != NULL) && ((hs->handle->flags & (FS_FILE_FLAGS_HEADER_INCLUDED | FS_FILE_FLAGS_HEADER_PERSISTENT)) == FS_FILE_FLAGS_HEADER_INCLUDED))
+//            hs->keepalive = 0;
     }
 #endif /* LWIP_HTTPD_SUPPORT_11_KEEPALIVE */
 
@@ -1962,7 +2096,7 @@ static err_t http_recv (void *arg, struct altcp_pcb *pcb, struct pbuf *p, err_t 
     }
 
 #if LWIP_HTTPD_SUPPORT_POST
-    if(hs->method == HTTP_Post) {
+    if(hs->request.post_receive_data) {
         if (hs->post_content_len_left > 0) {
             /* reset idle counter when POST data is received */
             hs->retries = 0;

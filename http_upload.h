@@ -5,7 +5,7 @@
 
   Part of grblHAL
 
-  Copyright (c) 2019-2021 Terje Io
+  Copyright (c) 2019-2022 Terje Io
 
   Grbl is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -26,14 +26,8 @@
 
 #include <stdlib.h>
 
-#ifdef ESP_PLATFORM
-#include <esp_http_server.h>
-#include <esp_vfs_fat.h>
-typedef httpd_req_t http_request_t;
-#else
+#include "grbl/vfs.h"
 #include "networking/httpd.h"
-#include "networking/vfs.h"
-#endif
 
 #define HTTP_UPLOAD_MAX_PATHLENGTH 100
 
@@ -49,7 +43,10 @@ typedef enum
 
 typedef union {
     FILE *handle;
-    FIL *fatfs_handle;
+#ifdef GRBL_VFS
+    vfs_file_t *vfs_handle;
+#else
+#endif
 } file_handle_t;
 
 typedef struct {
@@ -62,7 +59,9 @@ typedef struct {
     char size_str[15];
     file_handle_t file;
     http_request_t *req;
+#ifndef GRBL_VFS
     FIL fatfs_fd;
+#endif
     size_t size;
     size_t uploaded;
 } file_upload_t;

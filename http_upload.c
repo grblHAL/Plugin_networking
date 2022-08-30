@@ -5,7 +5,7 @@
 
   Part of grblHAL
 
-  Copyright (c) 2019-2021 Terje Io
+  Copyright (c) 2019-2022 Terje Io
 
   Some parts of the code is based on test code by francoiscolas
   https://github.com/francoiscolas/multipart-parser/blob/master/tests.cpp
@@ -52,15 +52,20 @@ static void do_cleanup (file_upload_t *upload)
 {
     // close and unlink open file
     if(upload->file.handle) {
+#ifdef GRBL_VFS
+        vfs_close(upload->file.vfs_handle);
+        vfs_unlink(upload->filename);
+#else
         if(upload->to_fatfs) {
             f_close(upload->file.fatfs_handle);
             f_unlink(upload->filename);
         }
-#ifdef STDIO_FS
+  #ifdef STDIO_FS
         else {
             fclose(upload->file.handle);
             unlink(upload->filename);
         }
+  #endif
 #endif
         upload->file.handle = NULL;
     }
@@ -114,11 +119,16 @@ static void on_header_done (struct multipartparser *parser)
                 on_filename_parsed(upload->filename);
 
             if(upload->to_fatfs) {
+#ifdef GRBL_VFS
+                if((upload->file.vfs_handle = vfs_open(upload->filename, "w")) != NULL)
+                    upload->state = Upload_Write;
+#else
                 upload->file.fatfs_handle = &upload->fatfs_fd;
                 if(f_open(upload->file.fatfs_handle, upload->filename, FA_WRITE|FA_CREATE_ALWAYS) == FR_OK)
                     upload->state = Upload_Write;
                 else
                     upload->file.fatfs_handle = NULL;
+#endif
             }
 #ifdef STDIO_FS
               else if((upload->file.handle = fopen(upload->filename, "w")))
@@ -166,7 +176,11 @@ static int on_data (struct multipartparser *parser, const char* data, size_t siz
             {
                 size_t count;
                 if(upload->to_fatfs) {
+#ifdef GRBL_VFS
+                    count = vfs_write(data, 1, size, upload->file.vfs_handle);
+#else
                     f_write(upload->file.fatfs_handle, data, size, &count);
+#endif
                 } else
                     count = fwrite(data, sizeof(char), size, upload->file.handle);
                 if(count != size)
@@ -198,8 +212,13 @@ static int on_part_end (struct multipartparser *parser)
 
         case Upload_Write:
             if(upload->to_fatfs) {
+#ifdef GRBL_VFS
+                vfs_close(upload->file.vfs_handle);
+                upload->file.vfs_handle = NULL;
+#else
                 f_close(upload->file.fatfs_handle);
                 upload->file.fatfs_handle = NULL;
+#endif
             } else {
 #ifdef STDIO_FS
                 fclose(upload->file.handle);
@@ -259,13 +278,8 @@ bool http_upload_start (http_request_t *request, const char* boundary, bool to_f
 
         multipartparser_init(&parser, boundary);
         if((parser.data = malloc(sizeof(file_upload_t)))) {
-#ifdef ESP_PLATFORM
-            request->free_ctx = cleanup;
-            request->sess_ctx = parser.data;
-#else
             request->private_data = parser.data;
             request->on_request_completed = cleanup;
-#endif
             memset(parser.data, 0, sizeof(file_upload_t));
             ((file_upload_t *)parser.data)->to_fatfs = to_fatfs;
         }

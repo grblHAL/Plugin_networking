@@ -1,7 +1,7 @@
 //
 // networking.h - some shared networking code
 //
-// v1.4 / 2022-07-17 / Io Engineering / Terje
+// v1.5 / 2022-08-25 / Io Engineering / Terje
 //
 
 /*
@@ -81,6 +81,9 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #if HTTP_ENABLE
 #include "httpd.h"
+#if WEBDAV_ENABLE
+#include "webdav.h"
+#endif
 #endif
 
 //*****************************************************************************
@@ -126,6 +129,8 @@ typedef uint32_t TickType_t;
 #define SYS_ARCH_DECL_PROTECT(lev)
 
 #endif
+
+#define NETWORK_SERVICES_LEN 50
 
 typedef struct
 {
