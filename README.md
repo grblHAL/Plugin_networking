@@ -24,6 +24,8 @@ These drivers has this "middleware" layer, further details for how to configure 
 
 * [STM32F7xx](https://github.com/grblHAL/STM32F7xx) for Nucleo-F756ZG, cabled Ethernet.
 
+* [RP2040](https://github.com/grblHAL/RP2040) for Pi Pico W, wireless \(wifi\).
+
 * [MSP432E401Y](https://github.com/grblHAL/MSP432E401Y) for MSP432E401Y LaunchPad, cabled Ethernet.
 
 * [TM4C129](https://github.com/grblHAL/TM4C129) for EK-TM4C1294XL Launchpad, cabled Ethernet.
@@ -54,4 +56,4 @@ __NOTE:__ this plugin is only for the protocol layer. Driver specific code is re
 ![Test](media/websocket.png)
 
 ---
-2022-08-30
+2022-09-03

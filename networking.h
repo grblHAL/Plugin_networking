@@ -38,7 +38,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#ifdef ARDUINO
+#if defined(ARDUINO)
 #include "../driver.h"
 #else
 #include "driver.h"

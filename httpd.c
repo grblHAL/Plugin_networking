@@ -1549,7 +1549,8 @@ err_t http_get_payload (http_request_t *request, uint32_t len)
 static err_t http_parse_request (struct pbuf *inp, struct http_state *hs, struct altcp_pcb *pcb)
 {
     char *data;
-    u16_t data_len, clen;
+    u16_t data_len;
+    int clen;
     struct pbuf *p = inp;
 
     LWIP_UNUSED_ARG(pcb); /* only used for post */
@@ -1606,8 +1607,7 @@ static err_t http_parse_request (struct pbuf *inp, struct http_state *hs, struct
                 hs->method = (http_method_t)method;
         }
 
-        if ((http_method_t)method >= 0) {
-            /* received GET request */
+        if(method >= 0) {
             LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("Received %s request\"\n", data));
         } else {
             /* unsupported method! */
@@ -1622,7 +1622,7 @@ static err_t http_parse_request (struct pbuf *inp, struct http_state *hs, struct
         sp2 = lwip_strnstr(sp1 + 1, " ", left_len);
 
         uri_len = (u16_t)(sp2 - (sp1 + 1));
-        if ((sp2 != NULL) && (sp2 > sp1)) {
+        if((sp2 != NULL) && (sp2 > sp1)) {
             char *crlfcrlf;
             /* wait for CRLFCRLF (indicating end of HTTP headers) before parsing anything */
             if ((crlfcrlf = lwip_strnstr(data, CRLF CRLF, data_len)) != NULL) {
@@ -1926,7 +1926,7 @@ static err_t http_init_file (struct http_state *hs, vfs_file_t *file, const char
         hs->file = NULL;
 
 //        hs->file = file->data;
-        LWIP_ASSERT("File length must be positive!", (file->size >= 0));
+//        LWIP_ASSERT("File length must be positive!", (file->size >= 0));
 #if LWIP_HTTPD_CUSTOM_FILES
         if (file->is_custom_file && (file->data == NULL))
             /* custom file, need to read data first (via fs_read_custom) */

@@ -182,7 +182,33 @@ static size_t fs_read (void *buffer, size_t size, size_t count, vfs_file_t *file
 
 static size_t fs_write (const void *buffer, size_t size, size_t count, vfs_file_t *file)
 {
-    return 0;
+    char *s = (char *)buffer;
+    size_t length = size * count;
+
+    if(length == 0)
+        return 0;
+
+    if(txbuf.length && (txbuf.length + length) > txbuf.max_length) {
+        if(!vf_write())
+            return 0;
+    }
+
+    while(length > txbuf.max_length) {
+        txbuf.length = txbuf.max_length;
+        memcpy(txbuf.s, s, txbuf.length);
+        if(!vf_write())
+            return 0;
+        length -= txbuf.max_length;
+        s += txbuf.max_length;
+    }
+
+    if(length) {
+        memcpy(txbuf.s, s, length);
+        txbuf.length += length;
+        txbuf.s += length;
+    }
+
+    return length;
 }
 
 static size_t fs_tell (vfs_file_t *file)

@@ -202,13 +202,13 @@ static void propfind_add_properties (char *fname, u32_t size, struct tm *created
     vfs_puts("</D:displayname>", file);
 
     vfs_puts("<D:creationdate>", file);
-    sprintf(buffer, "%s, %02d %s %04d %02d:%02d:%02d GMT", day_table[created->tm_wday], created->tm_mday, month_table[created->tm_mon], created->tm_year < 100 ? created->tm_year + 1900 : created->tm_year, created->tm_hour, created->tm_min, created->tm_sec);
+    sprintf(buffer, "%s, %02d %s %04d %02d:%02d:%02d GMT", day_table[created->tm_wday], created->tm_mday, month_table[created->tm_mon], created->tm_year < 1000 ? created->tm_year + 1900 : created->tm_year, created->tm_hour, created->tm_min, created->tm_sec);
     //                sprintf(buffer, "%04i-%02i-%02iT%02i:%02i:00.00Z", created->tm_year < 100 ? created->tm_year + 1900 : created->tm_year, created->tm_mon, created->tm_mday, created->tm_hour, created->tm_min);
     vfs_puts(buffer, file);
     vfs_puts("</D:creationdate>", file);
 
     vfs_puts("<D:getlastmodified>", file);
-    sprintf(buffer, "%s, %02d %s %04d %02d:%02d:%02d GMT", day_table[modified->tm_wday], modified->tm_mday, month_table[modified->tm_mon], modified->tm_year < 100 ? modified->tm_year + 1900 : modified->tm_year, modified->tm_hour, modified->tm_min, modified->tm_sec);
+    sprintf(buffer, "%s, %02d %s %04d %02d:%02d:%02d GMT", day_table[modified->tm_wday], modified->tm_mday, month_table[modified->tm_mon], modified->tm_year < 1000 ? modified->tm_year + 1900 : modified->tm_year, modified->tm_hour, modified->tm_min, modified->tm_sec);
     //                sprintf(buffer, "%04i-%02i-%02iT%02i:%02i:00.00Z", modified->tm_year < 100 ? modified->tm_year + 1900 : modified->tm_year, modified->tm_mon, modified->tm_mday, modified->tm_hour, modified->tm_min);
     vfs_puts(buffer, file);
     vfs_puts("</D:getlastmodified>", file);
@@ -245,17 +245,15 @@ static void propfind_scan (char *uri, int depth, vfs_file_t *file)
     char path[50];
     bool has_subdirs = false;
 
-    time_t current_time = (time_t)-1;
-    int current_year;
-    struct tm *s_time;
     vfs_stat_t st;
     vfs_dir_t *vfs_dir;
     vfs_dirent_t *dir_ent;
+    struct tm *c_time, *m_time;
+    time_t current_time = (time_t)-1;
 #ifndef __IMXRT1062__
     time(&current_time);
 #endif
-    s_time = gmtime(&current_time);
-    current_year = s_time->tm_year;
+    c_time = gmtime(&current_time);
 
     if((vfs_dir = vfs_opendir(uri))) {
 
@@ -270,11 +268,14 @@ static void propfind_scan (char *uri, int depth, vfs_file_t *file)
 
             has_subdirs |= st.st_mode.directory;
 
-            if(!st.st_mode.directory)
-                propfind_add_properties(path, st.st_size, s_time, s_time, st.st_mode.directory, file);
-
-//                if(VFS_ISDIR(st.st_mode) && depth != 0)
-//                    propfind_scan(path, depth - 1);
+            if(!st.st_mode.directory) {
+#ifdef ESP_PLATFORM
+                m_time = gmtime(&st.st_mtim);
+#else
+                m_time = gmtime(&st.st_mtime);
+#endif
+                propfind_add_properties(path, st.st_size, c_time, m_time, st.st_mode.directory, file);
+            }
         }
 
         vfs_closedir(vfs_dir);
@@ -293,7 +294,7 @@ static void propfind_scan (char *uri, int depth, vfs_file_t *file)
 
             if(st.st_mode.directory) {
 
-                propfind_add_properties(path, st.st_size, s_time, s_time, st.st_mode.directory, file);
+                propfind_add_properties(path, st.st_size, c_time, c_time, st.st_mode.directory, file);
 
                 if(depth != 0)
                     propfind_scan(path, depth - 1, file);
@@ -318,26 +319,36 @@ static void propfind_receive_finished (http_request_t *request, char *response_u
     vfs_puts("<?xml version=\"1.0\" encoding=\"utf-8\"?>", dav->vfsh);
     vfs_puts("<D:multistatus xmlns:D=\"DAV:\">", dav->vfsh);
 
-    if (vfs_stat(dav->uri, &st) == 0 || !strcmp(dav->uri, "/")) {
+    if(vfs_stat(dav->uri, &st) == 0 || !strcmp(dav->uri, "/")) {
 
+        struct tm *c_time, *m_time;
         time_t current_time = (time_t)-1;
-        int current_year;
-        struct tm *s_time;
-#ifndef __IMXRT1062__
+    #ifndef __IMXRT1062__
         time(&current_time);
-#endif
-        s_time = gmtime(&current_time);
+    #endif
+        c_time = gmtime(&current_time);
 
-        if (!strcmp(dav->uri, "/") || st.st_mode.directory) {
+        if(!strcmp(dav->uri, "/")) {
+            m_time = c_time;
+            st.st_mode.directory = true;
+        } else {
+    #ifdef ESP_PLATFORM
+            m_time = gmtime(&st.st_mtim);
+    #else
+            m_time = gmtime(&st.st_mtime);
+    #endif
+        }
+
+        if(st.st_mode.directory) {
 
             if(dav->depth == 0)
-                propfind_add_properties(dav->uri, 0, s_time, s_time, true, dav->vfsh);
+                propfind_add_properties(dav->uri, 0, c_time, m_time, true, dav->vfsh);
 
             if(dav->depth != 0)
                 propfind_scan(dav->uri, dav->depth - 1, dav->vfsh);
 
         } else
-            propfind_add_properties(dav->uri, st.st_size, s_time, s_time, false, dav->vfsh);
+            propfind_add_properties(dav->uri, st.st_size, c_time, m_time, false, dav->vfsh);
 
     } else {
         char uri[LWIP_HTTPD_MAX_REQUEST_URI_LEN + 1];
@@ -359,7 +370,6 @@ static void propfind_receive_finished (http_request_t *request, char *response_u
 
 static void proppatch_receive_finished (http_request_t *request, char *response_uri, u16_t response_uri_len)
 {
-    vfs_stat_t st;
     webdav_data_t *dav = (webdav_data_t *)request->private_data;
 
     *dav->rcvptr = '\0';
