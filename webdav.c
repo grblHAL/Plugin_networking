@@ -378,6 +378,17 @@ static void proppatch_receive_finished (http_request_t *request, char *response_
     hal.stream.write(dav->payload);
     hal.stream.write(ASCII_EOL);
 */
+    char *tstamp;
+
+    if(dav->payload && (tstamp = strstr(dav->payload, "getlastmodified"))) {
+
+        struct tm modified = {0};
+        if((tstamp = strchr(tstamp, '>') + 1)) {
+            if(strtotime(tstamp, &modified))
+                vfs_utime(dav->uri, &modified);
+        }
+    }
+
     propfind_receive_finished(request, response_uri, response_uri_len);
 }
 

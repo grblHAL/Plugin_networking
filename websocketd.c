@@ -1,7 +1,7 @@
 //
 // websocketd.c - lwIP websocket daemon implementation
 //
-// v2.2 / 2022-07-31 / Io Engineering / Terje
+// v2.3 / 2022-09-04 / Io Engineering / Terje
 //
 
 /*
@@ -54,6 +54,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "sha1.h"
 #include "utils.h"
 #include "strutils.h"
+#include "websocketd.h"
 
 #include "grbl/grbl.h"
 #include "grbl/protocol.h"
@@ -152,6 +153,7 @@ typedef struct ws_sessiondata
     uint8_t errorCount;
     uint8_t pingCount;
     char *http_request;
+    bool protocol_webui;
     uint32_t hdrsize;
 } ws_sessiondata_t;
 
@@ -197,6 +199,8 @@ static tcp_server_t ws_server;
 static ws_sessiondata_t streamSession;
 static enqueue_realtime_command_ptr enqueue_realtime_command = protocol_enqueue_realtime_command;
 static portMUX_TYPE rx_mux = portMUX_INITIALIZER_UNLOCKED;
+
+websocket_events_t websocket;
 
 //
 // streamGetC - returns -1 if no data available
@@ -820,7 +824,7 @@ static err_t http_recv (void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t er
     DEBUG_PRINT(session->http_request);
 #endif
 
-        char c = '\r', *argp, *argend, *protocol = NULL;
+        char c = '\r', *argp, *argend, *protocols = NULL, *protocol = NULL;
 
         if((argend = stristr(session->http_request, WS_PROT))) {
 
@@ -841,31 +845,42 @@ static err_t http_recv (void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t er
                     *argend = '\0';
                 }
 
-                if((protocol = malloc(strlen(argp) + 1))) {
+                if((protocols = malloc(strlen(argp) + 1))) {
 
-                    memcpy(protocol, argp, strlen(argp) + 1);
+                    bool is_binary = false;
 
-                    bool p_webui = strlookup(protocol, "webui", ',') >= 0;
-                    bool p_arduino = strlookup(protocol, "arduino", ',') >= 0;
+                    memcpy(protocols, argp, strlen(argp) + 1);
 
-                    // Switch to binary frames if protocol is arduino or webui
-                    if(p_webui || p_arduino) {
+                    if(websocket.on_protocol_select)
+                        protocol = websocket.on_protocol_select(protocols, &is_binary);
 
-                        *protocol = '\0';
+                    if(protocol == NULL) {
+
+                        bool p_webui = strlookup(protocols, "webui-v3", ',') >= 0;
+                        bool p_arduino = strlookup(protocols, "arduino", ',') >= 0;
+
+                        protocol = protocols;
+
+                        // Switch to binary frames if protocol is arduino or webui
+                        if(p_webui || p_arduino) {
+
+                            *protocol = '\0';
+                            session->ftype = wshdr_bin;
+
+                            if(p_webui)
+                                strcat(protocol, "webui-v3");
+
+                            if(p_arduino) {
+                                stream = &webui_stream;
+                                if(*protocol != '\0')
+                                    strcat(protocol, ",");
+                                strcat(protocol, "arduino");
+                            }
+
+                        } else if((argp = strchr(protocols, ','))) // Select the first protocol if more than one and not arduino or webui
+                            *argp = '\0';
+                    } else if(is_binary)
                         session->ftype = wshdr_bin;
-
-                        if(p_arduino)
-                            strcat(protocol, "arduino");
-
-                        if(p_webui) {
-                            stream = &webui_stream;
-                            if(*protocol != '\0')
-                                strcat(protocol, ",");
-                            strcat(protocol, "webui");
-                        }
-
-                    } else if((argp = strchr(protocol, ','))) // Select the first protocol if more than one and not arduino or webui
-                        *argp = '\0';
                 }
 
                 *argend = c;
@@ -934,8 +949,8 @@ static err_t http_recv (void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t er
         }
 
         free(session->http_request);
-        if(protocol)
-            free(protocol);
+        if(protocols)
+            free(protocols);
 
         session->http_request = NULL;
         session->hdrsize = MAX_HTTP_HEADER_SIZE;

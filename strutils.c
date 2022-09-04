@@ -33,6 +33,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <string.h>
 #include <stdarg.h>
+#include <stdlib.h>
 #include <stdbool.h>
 
 #include "strutils.h"
@@ -157,4 +158,101 @@ int32_t strlookup (const char *s1, const char *s2, const char delimiter)
     }
 
     return found ? entry : -1;
+}
+
+bool strtotime (char *s, struct tm *time)
+{
+    char c, *s1 = s;
+    uint_fast16_t idx = 0;
+
+    if(s == NULL || time == NULL)
+        return false;
+
+    while((c = *s1)) {
+        if(c == ':')
+            *s1 = ' ';
+        s1++;
+    }
+
+    if(strchr(s, ',')) { // "text format"
+
+        s1 = strtok(s + 5, " ");
+        while(s1) {
+
+            switch(idx) {
+
+                case 0:
+                    time->tm_mday = atoi(s1);
+                    break;
+
+                case 1:
+                    time->tm_mon = strlookup(s1, "Jan,Feb,Mar,Apr,May,Jun,Jul,Aug,Sep,Oct,Nov,Dec", ',');
+                    break;
+
+                case 2:
+                    time->tm_year = atoi(s1) - 1900;
+                    break;
+
+                case 3:
+                    time->tm_hour = atoi(s1);
+                    break;
+
+                case 4:
+                    time->tm_min = atoi(s1);
+                    break;
+
+                case 5:
+                    time->tm_sec = atoi(s1);
+                    break;
+            }
+            idx++;
+            s1 = strtok(NULL, " ");
+        }
+    } else { // ISO8601 format
+
+        s1 = s;
+
+        while((c = *s1)) {
+            if(c == '-' || c == 'T')
+                *s1 = ' ';
+            else if(c == 'Z')
+                *s1 = '\0';
+            s1++;
+        }
+
+        s1 = strtok(s, " ");
+        while(s1) {
+
+            switch(idx) {
+
+                case 0:
+                    time->tm_year = atoi(s1) - 1900;
+                    break;
+
+                case 1:
+                    time->tm_mon = atoi(s1) - 1;
+                    break;
+
+                case 2:
+                    time->tm_mday = atoi(s1);
+                    break;
+
+                case 3:
+                    time->tm_hour = atoi(s1);
+                    break;
+
+                case 4:
+                    time->tm_min = atoi(s1);
+                    break;
+
+                case 5:
+                    time->tm_sec = atoi(s1);
+                    break;
+            }
+            idx++;
+            s1 = strtok(NULL, " ");
+        }
+    }
+
+    return idx >= 5;
 }

@@ -1,7 +1,7 @@
 //
 // websocketd.h - lwIP websocket daemon implementation
 //
-// v2.1 / 2022-01-31 / Io Engineering / Terje
+// v2.3 / 2022-09-04 / Io Engineering / Terje
 //
 
 /*
@@ -38,6 +38,14 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #ifndef __WSSTREAM_H__
 #define __WSSTREAM_H__
+
+typedef char *(*websocket_on_protocol_select_ptr)(char *protocols, bool *is_binary);
+
+typedef struct {
+    websocket_on_protocol_select_ptr on_protocol_select;
+} websocket_events_t;
+
+extern websocket_events_t websocket;
 
 bool websocketd_init (uint16_t port);
 void websocketd_poll (void);
