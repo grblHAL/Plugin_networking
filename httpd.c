@@ -1681,7 +1681,7 @@ static err_t http_parse_request (struct pbuf *inp, struct http_state *hs, struct
 
                         hs->post_content_len_left = (u32_t)content_len;
                     } else {
-                        LWIP_DEBUGF(HTTPD_DEBUG, ("POST received invalid Content-Length: %s\n", content_len_num));
+                        LWIP_DEBUGF(HTTPD_DEBUG, ("POST received invalid Content-Length: %s\n", content_len));
                         goto badrequest;
                     }
                 }

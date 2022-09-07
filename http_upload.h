@@ -24,6 +24,7 @@
 #ifndef __WEB_UPLOAD_H__
 #define __WEB_UPLOAD_H__
 
+#include <stdio.h>
 #include <stdlib.h>
 
 #include "grbl/vfs.h"
