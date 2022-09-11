@@ -46,7 +46,6 @@
 
 static struct multipartparser parser;
 static struct multipartparser_callbacks *sd_callbacks = NULL;
-static http_upload_filename_parsed_ptr on_filename_parsed;
 
 static void do_cleanup (file_upload_t *upload)
 {
@@ -115,8 +114,8 @@ static void on_header_done (struct multipartparser *parser)
 
         if(*upload->filename && strstr(upload->header_name, "Content-Type")) {
 
-            if(on_filename_parsed)
-                on_filename_parsed(upload->filename);
+            if(upload->on_filename_parsed)
+                upload->on_filename_parsed(upload->filename, upload->on_filename_parsed_arg);
 
             if(upload->to_fatfs) {
 #ifdef GRBL_VFS
@@ -247,12 +246,13 @@ static int on_body_end (struct multipartparser *parser)
     return 0;
 }
 
-void http_upload_on_filename_parsed (http_upload_filename_parsed_ptr fn)
+void http_upload_on_filename_parsed (file_upload_t *upload, http_upload_filename_parsed_ptr fn, void *data)
 {
-    on_filename_parsed = fn;
+    upload->on_filename_parsed = fn;
+    upload->on_filename_parsed_arg = data;
 }
 
-bool http_upload_start (http_request_t *request, const char* boundary, bool to_fatfs)
+file_upload_t *http_upload_start (http_request_t *request, const char* boundary, bool to_fatfs)
 {
 
 #ifndef STDIO_FS
@@ -283,12 +283,9 @@ bool http_upload_start (http_request_t *request, const char* boundary, bool to_f
             memset(parser.data, 0, sizeof(file_upload_t));
             ((file_upload_t *)parser.data)->to_fatfs = to_fatfs;
         }
-
     }
 
-    on_filename_parsed = NULL;
-
-    return parser.data != NULL;
+    return parser.data;
 }
 
 size_t http_upload_chunk (http_request_t *req, const char* data, size_t size)

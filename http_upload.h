@@ -50,6 +50,8 @@ typedef union {
 #endif
 } file_handle_t;
 
+typedef void (*http_upload_filename_parsed_ptr)(char *name, void *data);
+
 typedef struct {
     upload_state_t state;
     bool to_fatfs;
@@ -65,13 +67,13 @@ typedef struct {
 #endif
     size_t size;
     size_t uploaded;
+    http_upload_filename_parsed_ptr on_filename_parsed;
+    void *on_filename_parsed_arg;
 } file_upload_t;
 
-typedef void (*http_upload_filename_parsed_ptr)(char *name);
-
-bool http_upload_start (http_request_t *req, const char* boundary, bool to_fatfs);
+file_upload_t *http_upload_start (http_request_t *req, const char* boundary, bool to_fatfs);
 size_t http_upload_chunk (http_request_t *req, const char* data, size_t size);
-void http_upload_on_filename_parsed (http_upload_filename_parsed_ptr fn);
+void http_upload_on_filename_parsed (file_upload_t *upload, http_upload_filename_parsed_ptr fn, void *data);
 
 #endif
 

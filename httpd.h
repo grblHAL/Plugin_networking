@@ -97,7 +97,7 @@ typedef struct http_request {
 
 typedef struct
 {
-    void (*on_open_file_failed)(const char *uri, vfs_file_t **file, const char *mode);
+    const char *(*on_open_file_failed)(http_request_t *request, const char *uri, vfs_file_t **file, const char *mode);
     err_t (*on_unknown_method_process)(http_request_t *request, http_method_t method, char *uri, u16_t uri_len);
     void (*on_options_report)(http_request_t *request);
 } http_event_t;

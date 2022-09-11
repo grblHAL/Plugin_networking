@@ -334,13 +334,9 @@ typedef struct {
 } default_filename;
 
 static const default_filename httpd_default_filenames[] = {
-#if WEBUI_ENABLE
-    {"/www/index.html.gz",  0 },
-    {"/embedded/index.html.gz",  0 },
-#endif
-    {"/index.html",  0 },
-    {"/index.html.gz",   0 },
-    {"/index.htm",   0 }
+    {"/index.html",    0 },
+    {"/index.html.gz", 0 },
+    {"/index.htm",     0 }
 };
 
 http_event_t httpd = {0};
@@ -1737,14 +1733,15 @@ static err_t http_process_request (struct http_state *hs, const char *uri)
             match = !(uri_handlers[i].uri[len - 1] == '*' ? strncmp(uri, uri_handlers[i].uri, len - 1) : strcmp(uri, uri_handlers[i].uri));
 
             if ((match = (match && uri_handlers[i].method == hs->method))) {
-                /* We found a handler that handles this URI so extract the parameters and call it. */
-                hs->param_count = extract_uri_parameters(hs, params ? params + 1 : NULL);
                 uri_handler = &uri_handlers[i];
                 break;
             }
         }
 
         if(params) {
+
+            hs->param_count = extract_uri_parameters(hs, params + 1);
+
             char *s1 = strchr(uri, '\0'), *s2 = params + 1;
             *s1++ = '?';
             while(*s2)
@@ -1793,7 +1790,11 @@ static err_t http_process_request (struct http_state *hs, const char *uri)
                         break;
                     }
                 }
-            }
+
+                if(file == NULL && httpd.on_open_file_failed)
+                    uri = httpd.on_open_file_failed(&hs->request, uri, &file, "r");
+            } 
+
             if(file == NULL && uri_handler) {
                 if(params)
                     *params = '\0'; /* URI contains parameters. NULL-terminate the base URI */
@@ -1875,7 +1876,7 @@ static err_t http_process_request (struct http_state *hs, const char *uri)
                 LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("Opening %s\n", uri));
                 if((file = vfs_open(uri, "r")) == NULL) {
                     if(httpd.on_open_file_failed)
-                        httpd.on_open_file_failed(uri, &file, "r");
+                        uri = httpd.on_open_file_failed(&hs->request, uri, &file, "r");
                 }
             }
             if(file == NULL)
