@@ -1,7 +1,7 @@
 //
 // websocketd.c - lwIP websocket daemon implementation
 //
-// v2.3 / 2022-09-04 / Io Engineering / Terje
+// v2.4 / 2022-09-14 / Io Engineering / Terje
 //
 
 /*
@@ -35,7 +35,6 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 */
-
 
 #ifdef ARDUINO
 #include "../driver.h"
@@ -74,6 +73,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define WEBSOCKETD_POLL_INTERVAL 2
 #endif
 
+#define WEBSOCKETD_MAGIC 1819047252
 
 PROGMEM static const char WS_GUID[]  = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 PROGMEM static const char WS_KEY[]   = "Sec-WebSocket-Key: ";
@@ -136,7 +136,9 @@ typedef struct {
 
 typedef struct ws_sessiondata
 {
+    uint32_t magic;
     const io_stream_t *stream;
+    io_stream_state_t stream_state;
     websocket_state_t state;
     ws_frame_start_t ftype;
     websocket_opcode_t fragment_opcode;
@@ -153,8 +155,11 @@ typedef struct ws_sessiondata
     uint8_t errorCount;
     uint8_t pingCount;
     char *http_request;
-    bool protocol_webui;
+    uint8_t *payload;
+    bool collect_payload;
     uint32_t hdrsize;
+    websocket_on_frame_received_ptr on_txt_frame_received;
+    websocket_on_frame_received_ptr on_bin_frame_received;
 } ws_sessiondata_t;
 
 static void websocket_stream_handler (ws_sessiondata_t *session);
@@ -176,6 +181,9 @@ static const ws_frame_start_t wshdr_ping = {
 
 static const ws_sessiondata_t defaultSettings =
 {
+    .magic = WEBSOCKETD_MAGIC,
+    .stream = NULL,
+    .stream_state.connected = true,
     .state = WsState_Connecting,
     .fragment_opcode = WsOpcode_Continuation,
     .start.token = FRAME_NONE,
@@ -192,13 +200,19 @@ static const ws_sessiondata_t defaultSettings =
     .pingCount = 0,
     .lastErr = ERR_OK,
     .http_request = NULL,
-    .hdrsize = MAX_HTTP_HEADER_SIZE
+    .hdrsize = MAX_HTTP_HEADER_SIZE,
+    .payload = NULL,
+    .collect_payload = false,
+    .on_txt_frame_received = NULL,
+    .on_bin_frame_received = NULL
 };
 
 static tcp_server_t ws_server;
 static ws_sessiondata_t streamSession;
 static enqueue_realtime_command_ptr enqueue_realtime_command = protocol_enqueue_realtime_command;
+#if ESP_PLATFORM
 static portMUX_TYPE rx_mux = portMUX_INITIALIZER_UNLOCKED;
+#endif
 
 websocket_events_t websocket;
 
@@ -253,9 +267,11 @@ bool websocketd_RxPutC (char c)
 
     // discard input if MPG has taken over...
     if((ok = streamSession.state == WsState_Connected && hal.stream.type != StreamType_MPG)) {
-
+#if ESP_PLATFORM
         taskENTER_CRITICAL(&rx_mux);
-
+#else
+        taskENTER_CRITICAL();
+#endif
         if(!enqueue_realtime_command(c)) {                          // If not a real time command attempt to buffer it
             uint_fast16_t next_head = BUFNEXT(streamSession.rxbuf.head, streamSession.rxbuf);
             if(next_head == streamSession.rxbuf.tail)               // If buffer full
@@ -263,8 +279,11 @@ bool websocketd_RxPutC (char c)
             streamSession.rxbuf.data[streamSession.rxbuf.head] = c; // add data to buffer
             streamSession.rxbuf.head = next_head;                   // and update pointer
         }
-
+#if ESP_PLATFORM
         taskEXIT_CRITICAL(&rx_mux);
+#else
+        taskEXIT_CRITICAL();
+#endif
     }
 
     return ok && !streamSession.rxbuf.overflow;
@@ -352,12 +371,68 @@ static void streamClose (ws_sessiondata_t *session)
     }
 }
 
+bool websocket_register_frame_handler (websocket_t *session, websocket_on_frame_received_ptr handler, bool binary)
+{
+    bool ok;
+
+    if((ok = session && ((ws_sessiondata_t *)session)->magic == WEBSOCKETD_MAGIC)) {
+        if(binary)
+            ((ws_sessiondata_t *)session)->on_bin_frame_received = handler;
+        else
+            ((ws_sessiondata_t *)session)->on_txt_frame_received = handler;
+    }
+
+    return ok;
+}
+
+bool websocket_send_frame (websocket_t *session, const void *data, size_t size, bool is_text)
+{
+    uint8_t *msg;
+    size_t hdr_len = size >= 126 ? 4 : 2;
+
+    if(session == NULL || ((ws_sessiondata_t *)session)->magic != WEBSOCKETD_MAGIC)
+        return false;
+
+    if((msg = malloc(size + hdr_len))) {
+
+        memcpy(msg + hdr_len, data, size);
+
+        msg[0] = is_text ? wshdr_txt.opcode : wshdr_bin.opcode;
+        msg[1] = size < 126 ? size : 126;
+        if(size >= 126) {
+            msg[2] = (size >> 8) & 0xFF;
+            msg[3] = size & 0xFF;
+        }
+
+        if(tcp_write(((ws_sessiondata_t *)session)->pcb, msg, (u16_t)(size + hdr_len), TCP_WRITE_FLAG_COPY) == ERR_OK)
+            tcp_output(((ws_sessiondata_t *)session)->pcb);
+
+        ((ws_sessiondata_t *)session)->lastSendTime = xTaskGetTickCount();
+
+        free(msg);
+    }
+
+    return msg != 0;
+}
+
+bool websocket_set_stream_flags (websocket_t *session, io_stream_state_t stream_state)
+{
+    if(session == NULL || ((ws_sessiondata_t *)session)->magic != WEBSOCKETD_MAGIC)
+        return false;
+
+    ((ws_sessiondata_t *)session)->stream_state = stream_state;
+
+    return true;
+}
+
 //
 // TCP handlers
 //
 
 static void websocket_state_free (ws_sessiondata_t *session)
 {
+    session->magic = 0; // Invalidate session
+
     // Free any buffer chain currently beeing processed
     if(session->packet.p) {
         pbuf_free(session->packet.p);
@@ -369,6 +444,12 @@ static void websocket_state_free (ws_sessiondata_t *session)
         free(session->http_request);
         session->http_request = NULL;
         session->hdrsize = MAX_HTTP_HEADER_SIZE;
+    }
+
+    if(session->payload) {
+        free(session->payload);
+        session->payload = NULL;
+        session->collect_payload = false;
     }
 
     if(session->header.frame) {
@@ -469,6 +550,7 @@ static uint32_t websocket_msg_parse (ws_sessiondata_t *session, uint8_t *payload
                     memcpy(&session->header.mask, &session->header.data[4], sizeof(uint32_t));
                 } else
                     memcpy(&session->header.mask, &session->header.data[2], sizeof(uint32_t));
+
                 session->header.payload_rem = session->header.payload_len;
             }
         }
@@ -482,9 +564,11 @@ static uint32_t websocket_msg_parse (ws_sessiondata_t *session, uint8_t *payload
     // Process frame
     if (session->header.complete && (plen || session->header.payload_rem == 0)) {
 
+        bool is_binary = false;
+
         ws_frame_start_t fs = (ws_frame_start_t)session->header.data[0];
 
-        if (!fs.fin && (websocket_opcode_t)fs.opcode != WsOpcode_Continuation)
+        if(!fs.fin && (websocket_opcode_t)fs.opcode != WsOpcode_Continuation)
             session->fragment_opcode = (websocket_opcode_t)fs.opcode;
 
         if((websocket_opcode_t)fs.opcode == WsOpcode_Continuation)
@@ -498,14 +582,23 @@ static uint32_t websocket_msg_parse (ws_sessiondata_t *session, uint8_t *payload
                 break;
 
             case WsOpcode_Binary:
+                is_binary = true;
 //              session->ftype = wshdr_bin; // Switch to binary responses if client talks binary to us
                 //  No break
             case WsOpcode_Text:
 
-                if (fs.fin)
+                if(fs.fin)
                     session->fragment_opcode = WsOpcode_Continuation;
 
-                if (session->header.payload_rem) {
+                if(session->header.payload_rem == session->header.payload_len && ((session->on_txt_frame_received && !is_binary) || (session->on_bin_frame_received && is_binary))) {
+                    if((session->collect_payload = frame_done = plen >= session->header.payload_len))
+                        session->payload = payload;
+                    else
+                        session->collect_payload = session->header.payload_len > 0 && (session->payload = malloc(session->header.payload_len + is_binary ? 0 : 1)) != NULL;
+                        //TODO: handle malloc failure?
+                }
+
+                if(session->header.payload_rem) {
 
                     uint8_t *mask = (uint8_t *)&session->header.mask;
                     uint_fast16_t payload_len = session->header.payload_rem > plen ? plen : session->header.payload_rem;
@@ -522,37 +615,57 @@ static uint32_t websocket_msg_parse (ws_sessiondata_t *session, uint8_t *payload
                     DEBUG_PRINT(uitoa(payload_len));
                     DEBUG_PRINT("\r\n");
 */
-                    // Unmask and add data to input buffer
-                    uint_fast16_t i = session->header.rx_index;
-                    session->rxbuf.overflow = false;
-#if WEBUI_ENABLE
-                    bool is_ping = false;
 
-                    if(payload_len >= 5) {
-                        uint8_t ping[5], *pm = payload;
-                        uint_fast16_t ii = i, j;
-                        for(j = 0; j < 5; j++)
-                            ping[j] = *pm++ ^ mask[ii++ % 4];
-                        is_ping = !memcmp(ping, "PING:", 5);
-                    }
-                    if(!is_ping)
-#endif
+                    if(session->collect_payload) { // collect the complete frame before processing
 
-                    while (payload_len--) {
-                        if(!websocketd_RxPutC(*payload++ ^ mask[i % 4]))
-                            break; // If overflow pend buffering rest of data until next polling
-                        plen--;
-                        i++;
-                    }
+                        if(session->header.payload_rem && !frame_done) {
 
-#if WEBUI_ENABLE
-                    if(is_ping) {
+                            plen = 0;
+                            memcpy(session->payload + (session->header.payload_len - session->header.payload_rem), payload, payload_len);
+
+                            if((frame_done = (session->header.payload_rem = session->header.payload_rem - payload_len) == 0)) {
+                                if(!is_binary)
+                                    *(session->payload + session->header.payload_len) = '\0';
+                            }
+                        }
+
+                        if(frame_done) {
+
+                            uint_fast16_t i = 0, j;
+                            uint8_t *pm = session->payload;
+                            websocket_on_frame_received_ptr on_received = is_binary ? session->on_bin_frame_received : session->on_txt_frame_received;
+
+                            // Unmask data
+                            for(j = 0; j < session->header.payload_len; j++)
+                                *pm++ ^= mask[i++ % 4];
+
+                            on_received(session, session->payload, session->header.payload_len);
+
+                            if(session->payload == payload) { // not malloc'ed?
+                                plen = 0;
+                                session->payload = NULL;
+                            }
+                        }
+                    } else if(session->stream_state.connected) { // Unmask and push into RX buffer on the go
+
+                        uint_fast16_t i = session->header.rx_index;
+
+                        session->rxbuf.overflow = false;
+
+                        while (payload_len--) {
+                            if(!websocketd_RxPutC(*payload++ ^ mask[i % 4]))
+                                break; // If overflow pend buffering rest of data until next polling
+                            plen--;
+                            i++;
+                        }
+
+                        session->header.rx_index = i;
+                        frame_done = (session->header.payload_rem = session->header.payload_len - session->header.rx_index) == 0;
+
+                    } else { // No client, sink payload
                         plen = 0;
-                        session->header.rx_index = session->header.payload_len;
-                    } else
-#endif
-                    session->header.rx_index = i;
-                    frame_done = (session->header.payload_rem = session->header.payload_len - session->header.rx_index) == 0;
+                        frame_done = (session->header.payload_rem = session->header.payload_rem - payload_len) == 0;
+                    }
                 }
                 break;
 
@@ -609,6 +722,11 @@ static uint32_t websocket_msg_parse (ws_sessiondata_t *session, uint8_t *payload
         }
 
         if(frame_done) {
+            if(session->payload) {
+                free(session->payload);
+                session->payload = NULL;
+                session->collect_payload = false;
+            }
             if(session->header.frame)
                 free(session->header.frame);
             memset(&session->header, 0, sizeof(frame_header_t));
@@ -688,7 +806,7 @@ static err_t websocket_sent (void *arg, struct tcp_pcb *pcb, u16_t ui16len)
  * @param apiflags directly passed to tcp_write
  * @return the return value of tcp_write
  */
-static err_t http_write (struct tcp_pcb *pcb, const void* ptr, u16_t *length, u8_t apiflags)
+static err_t http_write (struct tcp_pcb *pcb, const void *ptr, u16_t *length, u8_t apiflags)
 {
     u16_t len;
     err_t err;
@@ -727,25 +845,9 @@ static void http_write_error (ws_sessiondata_t *session, const char *status)
 //
 static err_t http_recv (void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
 {
-    static const io_stream_t websocket_stream = {
+    static const io_stream_t stream = {
         .type = StreamType_WebSocket,
         .state.connected = true,
-        .read = streamGetC,
-        .write = streamWriteS,
-        .write_n = streamWrite,
-        .write_char = streamPutC,
-        .enqueue_rt_command = streamEnqueueRtCommand,
-        .get_rx_buffer_free = streamRxFree,
-        .reset_read_buffer = streamRxFlush,
-        .cancel_read_buffer = websocketd_RxCancel,
-        .suspend_read = streamSuspendInput,
-        .set_enqueue_rt_handler = streamSetRtHandler
-    };
-
-    static const io_stream_t webui_stream = {
-        .type = StreamType_WebSocket,
-        .state.connected = true,
-        .state.webui_connected = true,
         .read = streamGetC,
         .write = streamWriteS,
         .write_n = streamWrite,
@@ -761,7 +863,6 @@ static err_t http_recv (void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t er
     static uint32_t ptr = 0;
 
     ws_sessiondata_t *session = arg;
-    const io_stream_t *stream = &websocket_stream;
 
     bool hdr_ok;
 
@@ -852,32 +953,17 @@ static err_t http_recv (void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t er
                     memcpy(protocols, argp, strlen(argp) + 1);
 
                     if(websocket.on_protocol_select)
-                        protocol = websocket.on_protocol_select(protocols, &is_binary);
+                        protocol = websocket.on_protocol_select(session, protocols, &is_binary);
 
                     if(protocol == NULL) {
-
-                        bool p_webui = strlookup(protocols, "webui-v3", ',') >= 0;
-                        bool p_arduino = strlookup(protocols, "arduino", ',') >= 0;
 
                         protocol = protocols;
 
                         // Switch to binary frames if protocol is arduino or webui
-                        if(p_webui || p_arduino) {
-
-                            *protocol = '\0';
+                        if(strlookup(protocols, "arduino", ',') >= 0) {
+                            strcpy(protocol, "arduino");
                             session->ftype = wshdr_bin;
-
-                            if(p_webui)
-                                strcat(protocol, "webui-v3");
-
-                            if(p_arduino) {
-                                stream = &webui_stream;
-                                if(*protocol != '\0')
-                                    strcat(protocol, ",");
-                                strcat(protocol, "arduino");
-                            }
-
-                        } else if((argp = strchr(protocols, ','))) // Select the first protocol if more than one and not arduino or webui
+                        } else if((argp = strchr(protocols, ','))) // Select the first protocol if more than one and not arduino
                             *argp = '\0';
                     } else if(is_binary)
                         session->ftype = wshdr_bin;
@@ -960,11 +1046,13 @@ static err_t http_recv (void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t er
             tcp_recv(pcb, websocket_recv);
 
             if(hal.stream_select)
-                hal.stream_select(stream);
-            else if(stream_connect(stream))
-                session->stream = stream;
-            //else
-            //  abort connection?
+                hal.stream_select(&stream);
+            else if(stream_connect(&stream))
+                session->stream = &stream;
+
+            if(hal.stream.type == StreamType_WebSocket)
+                hal.stream.state = session->stream_state;
+
         } else
             session->state = WsState_Idle;
     }

@@ -6,8 +6,14 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include <stdlib.h>
 #include <ctype.h>
+
+#ifdef __MSP432E401Y__
+#include <string.h>
+#include "grbl/nuts_bolts.h"
+#else
+#include <stdlib.h>
+#endif
 
 int urlencode (const char *uri, const char *encoded, size_t size)
 {
@@ -31,7 +37,11 @@ int urlencode (const char *uri, const char *encoded, size_t size)
 
         if(encode[(uint_fast8_t)*s1]) {
             *s2++ = '%';
+#ifdef __MSP432E401Y__
+            strcpy(s2++, uitoa(*s1++));
+#else
             itoa(*s1++, s2++, 16);
+#endif
             s2++;
             size -= 2;
         } else

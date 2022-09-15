@@ -1,7 +1,7 @@
 /*
   strutils.c - a collection of useful string utilities
 
-Copyright (c) 2019 Terje Io
+Copyright (c) 2019-2022 Terje Io
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -35,6 +35,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <stdarg.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <stdio.h>
 
 #include "strutils.h"
 
@@ -255,4 +256,69 @@ bool strtotime (char *s, struct tm *time)
     }
 
     return idx >= 5;
+}
+
+char *strtoisodt (struct tm *dt)
+{
+    static char buf[21];
+
+#ifdef __GNUC__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-overflow"
+#endif
+    if(dt == NULL || snprintf(buf, sizeof(buf), "%04i-%02i-%02iT%02i:%02i:%02i", dt->tm_year < 1000 ? dt->tm_year + 1900 : dt->tm_year, dt->tm_mon + 1, dt->tm_mday, dt->tm_hour, dt->tm_min, dt->tm_sec) > sizeof(buf))
+        *buf = '\0';
+#ifdef __GNUC__
+#pragma GCC diagnostic pop
+#endif
+
+    return buf;
+}
+
+char *strtointernetdt (struct tm *dt)
+{
+    static const char *month_table[12] = {
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec"
+    };
+
+    static const char *day_table[7] = {
+        "Sun",
+        "Mon",
+        "Tue",
+        "Wed",
+        "Thu",
+        "Fri",
+        "Sat"
+    };
+
+    static char buf[31];
+
+#ifdef __MSP432E401Y__
+    return "Thu, 01 Jan 1970 00:00:00 GMT"; // snprintf below crashes the MCU!
+#else
+
+#ifdef __GNUC__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-overflow"
+#endif
+    if(dt == NULL || snprintf(buf, sizeof(buf), "%s, %02d %s %04d %02d:%02d:%02d GMT", day_table[dt->tm_wday], dt->tm_mday, month_table[dt->tm_mon], dt->tm_year < 1000 ? dt->tm_year + 1900 : dt->tm_year, dt->tm_hour, dt->tm_min, dt->tm_sec) > sizeof(buf))
+        return "Thu, 01 Jan 1970 00:00:00 GMT";
+#ifdef __GNUC__
+#pragma GCC diagnostic pop
+#endif
+
+    return buf;
+
+#endif
 }

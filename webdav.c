@@ -159,31 +159,6 @@ static err_t dav_init_request (http_request_t *request, http_method_t method, ch
 
 static void propfind_add_properties (char *fname, u32_t size, struct tm *created, struct tm *modified, bool is_dir, vfs_file_t *file)
 {
-    PROGMEM static const char *month_table[12] = {
-        "Jan",
-        "Feb",
-        "Mar",
-        "Apr",
-        "May",
-        "Jun",
-        "Jul",
-        "Aug",
-        "Sep",
-        "Oct",
-        "Nov",
-        "Dec"
-    };
-
-    PROGMEM static const char *day_table[7] = {
-        "Sun",
-        "Mon",
-        "Tue",
-        "Wed",
-        "Thu",
-        "Fri",
-        "Sat"
-    };
-
     char buffer[LWIP_HTTPD_MAX_REQUEST_URI_LEN + 1];
 
     if(strlen(fname) > 1 && strrchr(fname, '/'))
@@ -202,15 +177,11 @@ static void propfind_add_properties (char *fname, u32_t size, struct tm *created
     vfs_puts("</D:displayname>", file);
 
     vfs_puts("<D:creationdate>", file);
-    sprintf(buffer, "%s, %02d %s %04d %02d:%02d:%02d GMT", day_table[created->tm_wday], created->tm_mday, month_table[created->tm_mon], created->tm_year < 1000 ? created->tm_year + 1900 : created->tm_year, created->tm_hour, created->tm_min, created->tm_sec);
-    //                sprintf(buffer, "%04i-%02i-%02iT%02i:%02i:00.00Z", created->tm_year < 100 ? created->tm_year + 1900 : created->tm_year, created->tm_mon, created->tm_mday, created->tm_hour, created->tm_min);
-    vfs_puts(buffer, file);
+    vfs_puts(strtointernetdt(created), file);
     vfs_puts("</D:creationdate>", file);
 
     vfs_puts("<D:getlastmodified>", file);
-    sprintf(buffer, "%s, %02d %s %04d %02d:%02d:%02d GMT", day_table[modified->tm_wday], modified->tm_mday, month_table[modified->tm_mon], modified->tm_year < 1000 ? modified->tm_year + 1900 : modified->tm_year, modified->tm_hour, modified->tm_min, modified->tm_sec);
-    //                sprintf(buffer, "%04i-%02i-%02iT%02i:%02i:00.00Z", modified->tm_year < 100 ? modified->tm_year + 1900 : modified->tm_year, modified->tm_mon, modified->tm_mday, modified->tm_hour, modified->tm_min);
-    vfs_puts(buffer, file);
+    vfs_puts(strtointernetdt(modified), file);
     vfs_puts("</D:getlastmodified>", file);
 
     if (!is_dir) {

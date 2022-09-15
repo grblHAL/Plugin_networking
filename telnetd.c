@@ -96,7 +96,9 @@ static const sessiondata_t defaultSettings =
 static tcp_server_t telnet_server;
 static sessiondata_t streamSession;
 static enqueue_realtime_command_ptr enqueue_realtime_command = protocol_enqueue_realtime_command;
+#if ESP_PLATFORM
 static portMUX_TYPE rx_mux = portMUX_INITIALIZER_UNLOCKED;
+#endif
 
 static void telnet_stream_handler (sessiondata_t *session);
 
@@ -151,9 +153,11 @@ static bool streamRxPutC (char c)
 
     // discard input if MPG has taken over...
     if(!(mpg = hal.stream.type == StreamType_MPG)) {
-
+#if ESP_PLATFORM
         taskENTER_CRITICAL(&rx_mux);
-
+#else
+        taskENTER_CRITICAL();
+#endif
         if(!enqueue_realtime_command(c)) {                              // If not a real time command attempt to buffer it
             uint_fast16_t next_head = BUFNEXT(streamSession.rxbuf.head, streamSession.rxbuf);
             if(next_head == streamSession.rxbuf.tail)                   // If buffer full
@@ -163,8 +167,11 @@ static bool streamRxPutC (char c)
                 streamSession.rxbuf.head = next_head;                   // update pointer
             }
         }
-
+#if ESP_PLATFORM
         taskEXIT_CRITICAL(&rx_mux);
+#else
+        taskEXIT_CRITICAL();
+#endif
     }
 
     return mpg || !streamSession.rxbuf.overflow;

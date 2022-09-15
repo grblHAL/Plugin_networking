@@ -118,8 +118,8 @@ typedef uint32_t TickType_t;
 #define xTaskGetTickCount() sys_now()
 #define portMUX_TYPE void*
 #define portMUX_INITIALIZER_UNLOCKED NULL
-#define taskENTER_CRITICAL(p) UNUSED(p)
-#define taskEXIT_CRITICAL(p) UNUSED(p)
+#define taskENTER_CRITICAL()
+#define taskEXIT_CRITICAL()
 #endif
 
 #ifndef SYS_ARCH_PROTECT
