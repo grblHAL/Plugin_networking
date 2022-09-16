@@ -1,7 +1,7 @@
 //
 // websocketd.h - lwIP websocket daemon implementation
 //
-// v2.4 / 2022-09-14 / Io Engineering / Terje
+// v2.5 / 2022-09-15 / Io Engineering / Terje
 //
 
 /*
@@ -40,10 +40,14 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 typedef void websocket_t;
 typedef char *(*websocket_on_protocol_select_ptr)(websocket_t *websocket, char *protocols, bool *is_binary);
+typedef void (*websocket_on_client_connect_ptr)(websocket_t *websocket);
+typedef void (*websocket_on_client_disconnect_ptr)(websocket_t *websocket);
 typedef void (*websocket_on_frame_received_ptr)(websocket_t *websocket, void *data, size_t size);
 
 typedef struct {
     websocket_on_protocol_select_ptr on_protocol_select;
+    websocket_on_client_connect_ptr on_client_connect;
+    websocket_on_client_disconnect_ptr on_client_disconnect;
 } websocket_events_t;
 
 extern websocket_events_t websocket;
@@ -56,6 +60,8 @@ void websocketd_stop (void);
 void websocketd_close_connections (void);
 bool websocket_register_frame_handler (websocket_t *websocket, websocket_on_frame_received_ptr handler, bool binary);
 bool websocket_send_frame (websocket_t *websocket, const void *data, size_t size, bool is_binary);
+bool websocket_broadcast_frame (const void *data, size_t size, bool is_binary);
 bool websocket_set_stream_flags (websocket_t *session, io_stream_state_t stream_flags);
+bool websocket_claim_stream (websocket_t *session);
 
 #endif

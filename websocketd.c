@@ -1,7 +1,7 @@
 //
 // websocketd.c - lwIP websocket daemon implementation
 //
-// v2.4 / 2022-09-14 / Io Engineering / Terje
+// v2.5 / 2022-09-15 / Io Engineering / Terje
 //
 
 /*
@@ -73,6 +73,10 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define WEBSOCKETD_POLL_INTERVAL 2
 #endif
 
+#ifndef WEBUI_MAX_CLIENTS
+#define WEBUI_MAX_CLIENTS 4
+#endif
+
 #define WEBSOCKETD_MAGIC 1819047252
 
 PROGMEM static const char WS_GUID[]  = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -98,6 +102,7 @@ typedef enum {
 
 typedef enum
 {
+    WsState_Free,
     WsState_Idle,
     WsState_Connecting,
     WsState_Connected,
@@ -148,8 +153,6 @@ typedef struct ws_sessiondata
     uint32_t timeoutMax;
     struct tcp_pcb *pcb;
     packet_chain_t packet;
-    stream_rx_buffer_t rxbuf;
-    stream_tx_buffer_t txbuf;
     TickType_t lastSendTime;
     err_t lastErr;
     uint8_t errorCount;
@@ -161,6 +164,12 @@ typedef struct ws_sessiondata
     websocket_on_frame_received_ptr on_txt_frame_received;
     websocket_on_frame_received_ptr on_bin_frame_received;
 } ws_sessiondata_t;
+
+typedef struct {
+    ws_sessiondata_t *session;
+    stream_rx_buffer_t rxbuf;
+    stream_tx_buffer_t txbuf;
+} ws_streambuffers_t;
 
 static void websocket_stream_handler (ws_sessiondata_t *session);
 
@@ -184,7 +193,7 @@ static const ws_sessiondata_t defaultSettings =
     .magic = WEBSOCKETD_MAGIC,
     .stream = NULL,
     .stream_state.connected = true,
-    .state = WsState_Connecting,
+    .state = WsState_Free,
     .fragment_opcode = WsOpcode_Continuation,
     .start.token = FRAME_NONE,
 //    .ftype = wshdr_txt,
@@ -193,8 +202,6 @@ static const ws_sessiondata_t defaultSettings =
     .pcb = NULL,
     .packet = {0},
     .header = {0},
-    .rxbuf = {0},
-    .txbuf = {0},
     .lastSendTime = 0,
     .errorCount = 0,
     .pingCount = 0,
@@ -208,7 +215,8 @@ static const ws_sessiondata_t defaultSettings =
 };
 
 static tcp_server_t ws_server;
-static ws_sessiondata_t streamSession;
+static ws_sessiondata_t clients[WEBUI_MAX_CLIENTS] = {0};
+static ws_streambuffers_t streambuffers = {0};
 static enqueue_realtime_command_ptr enqueue_realtime_command = protocol_enqueue_realtime_command;
 #if ESP_PLATFORM
 static portMUX_TYPE rx_mux = portMUX_INITIALIZER_UNLOCKED;
@@ -223,18 +231,18 @@ static int16_t streamGetC (void)
 {
     int16_t data;
 
-    if(streamSession.rxbuf.tail == streamSession.rxbuf.head)
+    if(streambuffers.rxbuf.tail == streambuffers.rxbuf.head)
         return -1; // no data available else EOF
 
-    data = streamSession.rxbuf.data[streamSession.rxbuf.tail];                          // Get next character
-    streamSession.rxbuf.tail = BUFNEXT(streamSession.rxbuf.tail, streamSession.rxbuf);  // and update pointer
+    data = streambuffers.rxbuf.data[streambuffers.rxbuf.tail];                          // Get next character
+    streambuffers.rxbuf.tail = BUFNEXT(streambuffers.rxbuf.tail, streambuffers.rxbuf);  // and update pointer
 
     return data;
 }
 
 static inline uint16_t streamRxCount (void)
 {
-    uint_fast16_t head = streamSession.rxbuf.head, tail = streamSession.rxbuf.tail;
+    uint_fast16_t head = streambuffers.rxbuf.head, tail = streambuffers.rxbuf.tail;
 
     return BUFCOUNT(head, tail, RX_BUFFER_SIZE);
 }
@@ -246,19 +254,19 @@ static uint16_t streamRxFree (void)
 
 static void streamRxFlush (void)
 {
-    streamSession.rxbuf.tail = streamSession.rxbuf.head;
+    streambuffers.rxbuf.tail = streambuffers.rxbuf.head;
 }
 
 static void websocketd_RxCancel (void)
 {
-    streamSession.rxbuf.data[streamSession.rxbuf.head] = ASCII_CAN;
-    streamSession.rxbuf.tail = streamSession.rxbuf.head;
-    streamSession.rxbuf.head = BUFNEXT(streamSession.rxbuf.head, streamSession.rxbuf);
+    streambuffers.rxbuf.data[streambuffers.rxbuf.head] = ASCII_CAN;
+    streambuffers.rxbuf.tail = streambuffers.rxbuf.head;
+    streambuffers.rxbuf.head = BUFNEXT(streambuffers.rxbuf.head, streambuffers.rxbuf);
 }
 
 static bool streamSuspendInput (bool suspend)
 {
-    return stream_rx_suspend(&streamSession.rxbuf, suspend);
+    return stream_rx_suspend(&streambuffers.rxbuf, suspend);
 }
 
 bool websocketd_RxPutC (char c)
@@ -266,18 +274,18 @@ bool websocketd_RxPutC (char c)
     bool ok;
 
     // discard input if MPG has taken over...
-    if((ok = streamSession.state == WsState_Connected && hal.stream.type != StreamType_MPG)) {
+    if((ok = streambuffers.session && streambuffers.session->state == WsState_Connected && hal.stream.type != StreamType_MPG)) {
 #if ESP_PLATFORM
         taskENTER_CRITICAL(&rx_mux);
 #else
         taskENTER_CRITICAL();
 #endif
         if(!enqueue_realtime_command(c)) {                          // If not a real time command attempt to buffer it
-            uint_fast16_t next_head = BUFNEXT(streamSession.rxbuf.head, streamSession.rxbuf);
-            if(next_head == streamSession.rxbuf.tail)               // If buffer full
-                streamSession.rxbuf.overflow = true;                // flag overflow
-            streamSession.rxbuf.data[streamSession.rxbuf.head] = c; // add data to buffer
-            streamSession.rxbuf.head = next_head;                   // and update pointer
+            uint_fast16_t next_head = BUFNEXT(streambuffers.rxbuf.head, streambuffers.rxbuf);
+            if(next_head == streambuffers.rxbuf.tail)               // If buffer full
+                streambuffers.rxbuf.overflow = true;                // flag overflow
+            streambuffers.rxbuf.data[streambuffers.rxbuf.head] = c; // add data to buffer
+            streambuffers.rxbuf.head = next_head;                   // and update pointer
         }
 #if ESP_PLATFORM
         taskEXIT_CRITICAL(&rx_mux);
@@ -286,20 +294,20 @@ bool websocketd_RxPutC (char c)
 #endif
     }
 
-    return ok && !streamSession.rxbuf.overflow;
+    return ok && !streambuffers.rxbuf.overflow;
 }
 
 static bool streamPutC (const char c)
 {
-    uint_fast16_t next_head = BUFNEXT(streamSession.txbuf.head, streamSession.txbuf);
+    uint_fast16_t next_head = BUFNEXT(streambuffers.txbuf.head, streambuffers.txbuf);
 
-    while(streamSession.txbuf.tail == next_head) {                               // Buffer full, block until space is available...
+    while(streambuffers.txbuf.tail == next_head) {                               // Buffer full, block until space is available...
         if(!hal.stream_blocking_callback())
             return false;
     }
 
-    streamSession.txbuf.data[streamSession.txbuf.head] = c;                     // Add data to buffer
-    streamSession.txbuf.head = next_head;                                       // and update head pointer
+    streambuffers.txbuf.data[streambuffers.txbuf.head] = c;                     // Add data to buffer
+    streambuffers.txbuf.head = next_head;                                       // and update head pointer
 
     return true;
 }
@@ -322,7 +330,7 @@ static void streamWrite (const char *data, uint16_t length)
 
 static uint16_t streamRxCancel (void) {
 
-    uint_fast16_t head = streamSession.txbuf.head, tail = streamSession.txbuf.tail;
+    uint_fast16_t head = streambuffers.txbuf.head, tail = streambuffers.txbuf.tail;
 
     return BUFCOUNT(head, tail, TX_BUFFER_SIZE);
 }
@@ -331,21 +339,19 @@ static int16_t streamTxGetC (void)
 {
     int16_t data;
 
-    if(streamSession.txbuf.tail == streamSession.txbuf.head)
+    if(streambuffers.txbuf.tail == streambuffers.txbuf.head)
         return -1; // no data available else EOF
 
-    data = streamSession.txbuf.data[streamSession.txbuf.tail];                          // Get next character
-    streamSession.txbuf.tail = BUFNEXT(streamSession.txbuf.tail, streamSession.txbuf);  // and update pointer
+    data = streambuffers.txbuf.data[streambuffers.txbuf.tail];                          // Get next character
+    streambuffers.txbuf.tail = BUFNEXT(streambuffers.txbuf.tail, streambuffers.txbuf);  // and update pointer
 
     return data;
 }
 
-/*
 static void streamTxFlush (void)
 {
-    streamSession.txbuf.tail = streamSession.txbuf.head;
+    streambuffers.txbuf.tail = streambuffers.txbuf.head;
 }
-*/
 
 static bool streamEnqueueRtCommand (char c)
 {
@@ -368,6 +374,9 @@ static void streamClose (ws_sessiondata_t *session)
     if(session->stream) {
         stream_disconnect(session->stream);
         session->stream = NULL;
+        streambuffers.session = NULL;
+        streamRxFlush();
+        streamTxFlush();
     }
 }
 
@@ -385,7 +394,7 @@ bool websocket_register_frame_handler (websocket_t *session, websocket_on_frame_
     return ok;
 }
 
-bool websocket_send_frame (websocket_t *session, const void *data, size_t size, bool is_text)
+bool websocket_send_frame (websocket_t *session, const void *data, size_t size, bool is_binary)
 {
     uint8_t *msg;
     size_t hdr_len = size >= 126 ? 4 : 2;
@@ -397,7 +406,7 @@ bool websocket_send_frame (websocket_t *session, const void *data, size_t size, 
 
         memcpy(msg + hdr_len, data, size);
 
-        msg[0] = is_text ? wshdr_txt.opcode : wshdr_bin.opcode;
+        msg[0] = is_binary ? wshdr_bin.token : wshdr_txt.token;
         msg[1] = size < 126 ? size : 126;
         if(size >= 126) {
             msg[2] = (size >> 8) & 0xFF;
@@ -413,6 +422,18 @@ bool websocket_send_frame (websocket_t *session, const void *data, size_t size, 
     }
 
     return msg != 0;
+}
+
+bool websocket_broadcast_frame (const void *data, size_t size, bool is_binary)
+{
+    uint_fast16_t idx = WEBUI_MAX_CLIENTS;
+
+    do {
+        if(clients[--idx].state == WsState_Connected)
+            websocket_send_frame(&clients[idx], data, size, is_binary);
+    } while(idx);
+
+    return true;
 }
 
 bool websocket_set_stream_flags (websocket_t *session, io_stream_state_t stream_state)
@@ -458,20 +479,25 @@ static void websocket_state_free (ws_sessiondata_t *session)
     }
 }
 
+static void websocket_unlink_session (ws_sessiondata_t *session)
+{
+    session->magic = 0;             // Invalidate session
+    session->state = WsState_Free;
+
+    websocket_state_free(session);
+
+    streamClose(session);
+
+    if(websocket.on_client_disconnect)
+        websocket.on_client_disconnect(session);
+}
+
 static void websocket_err (void *arg, err_t err)
 {
     ws_sessiondata_t *session = arg;
 
-    websocket_state_free(session);
-
-    session->state = WsState_Idle;
-    session->errorCount++;
-    session->lastErr = err;
     session->pcb = NULL;
-    session->timeout = 0;
-    session->lastSendTime = 0;
-
-    streamClose(session);
+    websocket_unlink_session(session);
 }
 
 static err_t websocket_poll (void *arg, struct tcp_pcb *pcb)
@@ -491,10 +517,8 @@ static err_t websocket_poll (void *arg, struct tcp_pcb *pcb)
 
 static void websocket_close_conn (ws_sessiondata_t *session, struct tcp_pcb *pcb)
 {
-    websocket_state_free(session);
-
     session->pcb = NULL;
-    session->state = WsState_Idle;
+    websocket_unlink_session(session);
 
     tcp_arg(pcb, NULL);
     tcp_recv(pcb, NULL);
@@ -504,9 +528,6 @@ static void websocket_close_conn (ws_sessiondata_t *session, struct tcp_pcb *pcb
 
     if (tcp_close(pcb) != ERR_OK)
         tcp_poll(pcb, websocket_poll, WEBSOCKETD_POLL_INTERVAL);
-
-    // Switch I/O stream back to default
-    streamClose(session);
 }
 
 //
@@ -646,11 +667,11 @@ static uint32_t websocket_msg_parse (ws_sessiondata_t *session, uint8_t *payload
                                 session->payload = NULL;
                             }
                         }
-                    } else if(session->stream_state.connected) { // Unmask and push into RX buffer on the go
+                    } else if(session == streambuffers.session && session->stream_state.connected) { // Unmask and push into RX buffer on the go
 
                         uint_fast16_t i = session->header.rx_index;
 
-                        session->rxbuf.overflow = false;
+                        streambuffers.rxbuf.overflow = false;
 
                         while (payload_len--) {
                             if(!websocketd_RxPutC(*payload++ ^ mask[i % 4]))
@@ -764,7 +785,7 @@ static err_t websocket_recv (void *arg, struct tcp_pcb *pcb, struct pbuf *p, err
             taken += processed;
             len -= processed;
 
-            if(session->rxbuf.overflow)
+            if(streambuffers.rxbuf.overflow)
                 break;
 
             if(len == 0 && (q = q->next)) {
@@ -840,12 +861,9 @@ static void http_write_error (ws_sessiondata_t *session, const char *status)
     session->state = WsState_Closing;
 }
 
-//
-// Process connection handshake
-//
-static err_t http_recv (void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
+bool websocket_claim_stream (websocket_t *websocket)
 {
-    static const io_stream_t stream = {
+    static io_stream_t stream = {
         .type = StreamType_WebSocket,
         .state.connected = true,
         .read = streamGetC,
@@ -854,12 +872,42 @@ static err_t http_recv (void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t er
         .write_char = streamPutC,
         .enqueue_rt_command = streamEnqueueRtCommand,
         .get_rx_buffer_free = streamRxFree,
+        .reset_write_buffer = streamTxFlush,
         .reset_read_buffer = streamRxFlush,
         .cancel_read_buffer = websocketd_RxCancel,
         .suspend_read = streamSuspendInput,
         .set_enqueue_rt_handler = streamSetRtHandler
     };
 
+    ws_sessiondata_t *session = (ws_sessiondata_t *)websocket;
+
+    if(session && session->magic == WEBSOCKETD_MAGIC) {
+
+        if(hal.stream.type == StreamType_WebSocket || !session->stream_state.connected)
+            return session->stream != NULL;
+
+        stream.state = session->stream_state;
+
+        if(hal.stream_select)
+            hal.stream_select((const io_stream_t *)&stream);
+        else
+            stream_connect((const io_stream_t *)&stream);
+
+        if(hal.stream.type == StreamType_WebSocket || hal.stream.state.webui_connected) {
+            session->stream = &stream;
+            streambuffers.session = session;
+            hal.stream.state = session->stream_state;
+        }
+    }
+
+    return hal.stream.type == StreamType_WebSocket;
+}
+
+//
+// Process connection handshake
+//
+static err_t http_recv (void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
+{
     static uint32_t ptr = 0;
 
     ws_sessiondata_t *session = arg;
@@ -914,7 +962,7 @@ static err_t http_recv (void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t er
         }
     }
 
-    tcp_recved(streamSession.pcb, p->tot_len);
+    tcp_recved(session->pcb, p->tot_len);
     pbuf_free(p);
 
     session->http_request[ptr] = '\0';
@@ -1045,16 +1093,14 @@ static err_t http_recv (void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t er
 
             tcp_recv(pcb, websocket_recv);
 
-            if(hal.stream_select)
-                hal.stream_select(&stream);
-            else if(stream_connect(&stream))
-                session->stream = &stream;
+            if(websocket.on_client_connect)
+                websocket.on_client_connect(session);
 
-            if(hal.stream.type == StreamType_WebSocket)
-                hal.stream.state = session->stream_state;
+            if(session->stream_state.connected)
+                websocket_claim_stream(session);
 
         } else
-            session->state = WsState_Idle;
+            websocket_unlink_session(session);
     }
 
     // Bad request?
@@ -1064,6 +1110,7 @@ static err_t http_recv (void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t er
             free(session->http_request);
             session->http_request = NULL;
             session->hdrsize = MAX_HTTP_HEADER_SIZE;
+            websocket_unlink_session(session);
         }
     }
 
@@ -1072,27 +1119,36 @@ static err_t http_recv (void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t er
 
 static err_t websocketd_accept (void *arg, struct tcp_pcb *pcb, err_t err)
 {
-    ws_sessiondata_t *session = &streamSession; // allocate from static pool or heap if multiple connections are to be allowed
+    ws_sessiondata_t *session = NULL;
 
-    if(session->state != WsState_Idle) {
+    uint_fast16_t idx = WEBUI_MAX_CLIENTS;
+
+    do {
+        if(clients[--idx].state == WsState_Free) {
+            session = &clients[idx];
+            memcpy(session, &defaultSettings, sizeof(ws_sessiondata_t));
+            session->state = WsState_Connecting;
+            break;
+        }
+    } while(idx);
+
+    if(session == NULL) {
 
         if(!ws_server.link_lost)
             return ERR_CONN; // Busy, refuse connection
 
         // Link was previously lost, abort current connection
-
+/*
         websocket_state_free(session);
 
         tcp_abort(session->pcb);
 
         ws_server.link_lost = false;
-
+*/
         return ERR_ABRT;
     }
 
     streamClose(session);
-
-    memcpy(session, &defaultSettings, sizeof(ws_sessiondata_t));
 
     session->pcb = pcb;
     session->ftype = wshdr_txt;
@@ -1106,6 +1162,27 @@ static err_t websocketd_accept (void *arg, struct tcp_pcb *pcb, err_t err)
     tcp_sent(pcb, websocket_sent);
 
     return ERR_OK;
+}
+
+static void websocket_ping (ws_sessiondata_t *session)
+{
+    uint8_t txbuf[5];
+
+    // Send ping every 3 seconds if no outgoing traffic.
+    // Disconnect session after 3 failed pings (9 seconds).
+    if(session->pingCount > 3)
+        session->state = WsState_Closing;
+    else if(session->state != WsState_Closing && (xTaskGetTickCount() - session->lastSendTime) > (3 * configTICK_RATE_HZ)) {
+        if(tcp_sndbuf(session->pcb) > 4) {
+            txbuf[0] = wshdr_ping.token;
+            txbuf[1] = 2;
+            strcpy((char *)&txbuf[2], "Hi");
+            tcp_write(session->pcb, txbuf, 4, TCP_WRITE_FLAG_COPY);
+            tcp_output(session->pcb);
+            session->lastSendTime = xTaskGetTickCount();
+            session->pingCount++;
+        }
+    }
 }
 
 static void websocket_stream_handler (ws_sessiondata_t *session)
@@ -1129,7 +1206,7 @@ static void websocket_stream_handler (ws_sessiondata_t *session)
             taken += processed;
             len -= processed;
 
-            if(session->rxbuf.overflow)
+            if(streambuffers.rxbuf.overflow)
                 break;
 
             if(len == 0 && (q = q->next)) {
@@ -1188,22 +1265,6 @@ static void websocket_stream_handler (ws_sessiondata_t *session)
 
         session->lastSendTime = xTaskGetTickCount();
     }
-
-    // Send ping every 3 seconds if no outgoing traffic.
-    // Disconnect session after 3 failed pings (9 seconds).
-    if(session->pingCount > 3)
-        session->state = WsState_Closing;
-    else if(session->state != WsState_Closing && (xTaskGetTickCount() - session->lastSendTime) > (3 * configTICK_RATE_HZ)) {
-        if(tcp_sndbuf(session->pcb) > 4) {
-            txbuf[0] = wshdr_ping.token;
-            txbuf[1] = 2;
-            strcpy((char *)&txbuf[2], "Hi");
-            tcp_write(session->pcb, txbuf, 4, TCP_WRITE_FLAG_COPY);
-            tcp_output(session->pcb);
-            session->lastSendTime = xTaskGetTickCount();
-            session->pingCount++;
-        }
-    }
 }
 
 //
@@ -1211,10 +1272,18 @@ static void websocket_stream_handler (ws_sessiondata_t *session)
 //
 void websocketd_poll (void)
 {
-    if(streamSession.state == WsState_Connected)
-        websocket_stream_handler(&streamSession);
-    else if(streamSession.state == WsState_Closing)
-        websocket_close_conn(&streamSession, streamSession.pcb);
+    ws_sessiondata_t *client;
+    uint_fast16_t idx = WEBUI_MAX_CLIENTS;
+
+    do {
+        client = &clients[--idx];
+        if(client->state == WsState_Connected) {
+            if(client->stream)
+                websocket_stream_handler(client);
+            websocket_ping(client);
+        } else if(client->state == WsState_Closing)
+            websocket_close_conn(client, client->pcb);
+    } while(idx);
 }
 
 void websocketd_notify_link_status (bool up)
@@ -1225,31 +1294,40 @@ void websocketd_notify_link_status (bool up)
 
 void websocketd_close_connections (void)
 {
-    streamClose(&streamSession);
+    uint_fast16_t idx = WEBUI_MAX_CLIENTS;
+
+    do {
+        if(clients[--idx].state == WsState_Connected)
+            websocket_close_conn(&clients[idx], clients[idx].pcb);
+    } while(idx);
 }
 
 void websocketd_stop (void)
 {
-    if(streamSession.pcb != NULL) {
-        tcp_arg(streamSession.pcb, NULL);
-        tcp_recv(streamSession.pcb, NULL);
-        tcp_sent(streamSession.pcb, NULL);
-        tcp_err(streamSession.pcb, NULL);
-        tcp_poll(streamSession.pcb, NULL, 0);
+    ws_sessiondata_t *client;
+    uint_fast16_t idx = WEBUI_MAX_CLIENTS;
 
-        tcp_abort(streamSession.pcb);
-        websocket_state_free(&streamSession);
+    do {
+        client = &clients[--idx];
 
-        streamSession.pcb = NULL;
-    }
+        if(client->pcb != NULL) {
+            tcp_arg(client->pcb, NULL);
+            tcp_recv(client->pcb, NULL);
+            tcp_sent(client->pcb, NULL);
+            tcp_err(client->pcb, NULL);
+            tcp_poll(client->pcb, NULL, 0);
 
-    if(ws_server.pcb != NULL) {
+            tcp_abort(client->pcb);
+
+            client->pcb = NULL;
+        }
+
+        websocket_unlink_session(client);
+
+    } while(idx);
+
+    if(ws_server.pcb != NULL)
         tcp_close(ws_server.pcb);
-        websocket_state_free(&streamSession);
-    }
-
-    // Switch I/O stream back to default
-    streamClose(&streamSession);
 }
 
 bool websocketd_init (uint16_t port)
@@ -1262,11 +1340,8 @@ bool websocketd_init (uint16_t port)
     struct tcp_pcb *pcb = tcp_new();
 
     if((err = tcp_bind(pcb, IP_ADDR_ANY, port)) == ERR_OK) {
-
         ws_server.pcb = tcp_listen(pcb);
         tcp_accept(ws_server.pcb, websocketd_accept);
-
-        streamSession.state = WsState_Idle;
     }
 
     return err == ERR_OK;
