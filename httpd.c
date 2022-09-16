@@ -1142,6 +1142,24 @@ static bool http_check_eof (struct altcp_pcb *pcb, struct http_state *hs)
             count = max_write_len;
 
  #endif /* HTTPD_MAX_WRITE_LEN */
+
+ #if defined(STM32H743xx)
+        /*
+         * Ensure read sizes are a multiple of 32 bytes, this helps maintain buffer alignment
+         * with L1 cache lines when performing sequential reads through a file.
+         *
+         * Without correct alignment, the low level drivers fall back to single sector reads,
+         * resulting in a significant performance impact.
+         */
+
+        if (count != bytes_left) {
+            /* buffer size does not reach the end of file, so round down if not a multiple of 32 bytes */
+            if (count & 0x1F) {
+                count = count & ~0x1F;
+            }
+        }
+ #endif
+
         do {
             if ((hs->buf = (char *)mem_malloc((mem_size_t)count))) {
                 hs->buf_len = count;
