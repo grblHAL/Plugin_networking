@@ -213,7 +213,6 @@ typedef struct http_state {
 #if LWIP_HTTPD_KILL_OLD_ON_CONNECTIONS_EXCEEDED
     struct http_state *next;
 #endif /* LWIP_HTTPD_KILL_OLD_ON_CONNECTIONS_EXCEEDED */
-    vfs_file_t file_handle;
     vfs_file_t *handle;
     const char *file;       /* Pointer to first unsent byte in buf. */
     const char *uri;       /* Pointer to uri. */
@@ -1318,18 +1317,18 @@ static err_t http_find_error_file (struct http_state *hs, u16_t error_nr)
         uri3 = "/400.shtml";
     }
 
-    if (fs_open(&hs->file_handle, uri1) == ERR_OK)
+    if((file = vfs_open(uri1, "r")))
         uri = uri1;
-    else if (fs_open(&hs->file_handle, uri2) == ERR_OK)
+    else if((file = vfs_open(uri2, "r")))
         uri = uri2;
-    else if (fs_open(&hs->file_handle, uri3) == ERR_OK)
+    else if((file = vfs_open(uri3, "r")))
         uri = uri3;
     else {
         LWIP_DEBUGF(HTTPD_DEBUG, ("Error page for error %"U16_F" not found\n", error_nr));
         return ERR_ARG;
     }
 
-    return http_init_file(hs, &hs->file_handle, uri, NULL);
+    return http_init_file(hs, file, uri, NULL);
 }
 #else /* LWIP_HTTPD_SUPPORT_EXTSTATUS */
 #define http_find_error_file(hs, error_nr) ERR_ARG
