@@ -909,8 +909,11 @@ static void set_content_type (struct http_state *hs, const char *uri)
             /* no, no extension found -> use binary transfer to prevent the browser adding '.txt' on save */
             hs->response_hdr.string[hs->response_hdr.next++] = HTTP_HDR_APP;
         } else {
-            /* No - use the default, plain text file type. */
-            hs->response_hdr.string[hs->response_hdr.next++] = HTTP_HDR_DEFAULT_TYPE;
+            const char *content_type;
+            if(httpd.on_unknown_content_type && (content_type = httpd.on_unknown_content_type(ext)))
+                hs->response_hdr.string[hs->response_hdr.next++] = content_type;
+            else /* No - use the default, plain text file type. */
+                hs->response_hdr.string[hs->response_hdr.next++] = HTTP_HDR_DEFAULT_TYPE;
         }
     }
 }
@@ -1728,22 +1731,35 @@ static err_t http_process_request (struct http_state *hs, const char *uri)
 {
     char *params = NULL;
     vfs_file_t *file = NULL;
-    err_t ret = ERR_OK;
     const httpd_uri_handler_t *uri_handler = NULL;
 
+    /* First, isolate the base URI (without any parameters) */
+    if((params = strchr(uri, '?'))) /* URI contains parameters. NULL-terminate the base URI */
+        *params = '\0';
+
+    urldecode((char *)uri, uri);
+
+    if(params) { /* URI contains parameters. Move parameters to end of potentially shorter base URI and reinstate the parameter separator. */
+
+        hs->param_count = extract_uri_parameters(hs, params + 1);
+
+        char *s1 = strchr(uri, '\0'), *s2 = params + 1;
+        *s1++ = '?';
+        while(*s2)
+            *s1++ = *s2++;
+        *s1 = '\0';
+        params = strchr(uri, '?');
+    }
+
     if(num_uri_handlers) {
-
-        /* First, isolate the base URI (without any parameters) */
-        if((params = strchr(uri, '?'))) /* URI contains parameters. NULL-terminate the base URI */
-            *params = '\0';
-
-        /* Does the base URI we have isolated correspond to a handler? */
 
         uint_fast8_t i;
         bool match = false;
 
-        urldecode((char *)uri, uri);
+        if(params) /* URI contains parameters. NULL-terminate the base URI */
+            *params = '\0';
 
+        /* Does the base URI we have isolated correspond to a handler? */
         for (i = 0; i < num_uri_handlers; i++) {
 
             uint_fast8_t len = strlen(uri_handlers[i].uri);
@@ -1755,56 +1771,49 @@ static err_t http_process_request (struct http_state *hs, const char *uri)
             }
         }
 
-        if(params) {
-
-            hs->param_count = extract_uri_parameters(hs, params + 1);
-
-            char *s1 = strchr(uri, '\0'), *s2 = params + 1;
-            *s1++ = '?';
-            while(*s2)
-                *s1++ = *s2++;
-            *s1 = '\0';
-            params = strchr(uri, '?');
-        }
+        if(params) /* URI contains parameters. Reinstate the parameter separator. */
+            *params = '?';
     }
 
     switch(hs->method) {
 
-        case HTTP_Get:;
-            size_t loop;
-            /* Have we been asked for the default file (in root or a directory) ? */
-    #if LWIP_HTTPD_MAX_REQUEST_URI_LEN
-            size_t uri_len = strlen(uri);
-            if ((uri_len > 0) && (uri[uri_len - 1] == '/') && ((uri != http_uri_buf) || (uri_len == 1))) {
-                size_t copy_len = LWIP_MIN(sizeof(http_uri_buf) - 1, uri_len - 1);
-                if (copy_len > 0) {
-                    MEMCPY(http_uri_buf, uri, copy_len);
-                    http_uri_buf[copy_len] = '\0';
-                }
-    #else /* LWIP_HTTPD_MAX_REQUEST_URI_LEN */
-            if ((uri[0] == '/') &&  (uri[1] == '\0')) {
-    #endif /* LWIP_HTTPD_MAX_REQUEST_URI_LEN */
-                /* Try each of the configured default filenames until we find one that exists. */
-                for (loop = 0; loop < NUM_DEFAULT_FILENAMES; loop++) {
-                    const char *file_name;
-    #if LWIP_HTTPD_MAX_REQUEST_URI_LEN
+        case HTTP_Get:
+            if(params == NULL) {
+                size_t loop;
+                /* Have we been asked for the default file (in root or a directory) ? */
+        #if LWIP_HTTPD_MAX_REQUEST_URI_LEN
+                size_t uri_len = strlen(uri);
+                if ((uri_len > 0) && (uri[uri_len - 1] == '/') && ((uri != http_uri_buf) || (uri_len == 1))) {
+                    size_t copy_len = LWIP_MIN(sizeof(http_uri_buf) - 1, uri_len - 1);
                     if (copy_len > 0) {
-                        size_t len_left = sizeof(http_uri_buf) - copy_len - 1;
+                        MEMCPY(http_uri_buf, uri, copy_len);
+                        http_uri_buf[copy_len] = '\0';
+                    }
+        #else /* LWIP_HTTPD_MAX_REQUEST_URI_LEN */
+                if ((uri[0] == '/') &&  (uri[1] == '\0')) {
+        #endif /* LWIP_HTTPD_MAX_REQUEST_URI_LEN */
+                    /* Try each of the configured default filenames until we find one that exists. */
+                    for (loop = 0; loop < NUM_DEFAULT_FILENAMES; loop++) {
+                        const char *file_name;
+        #if LWIP_HTTPD_MAX_REQUEST_URI_LEN
+                        if (copy_len > 0) {
+                            size_t len_left = sizeof(http_uri_buf) - copy_len - 1;
                             if (len_left > 0) {
                                 size_t name_len = strlen(httpd_default_filenames[loop].name);
                                 size_t name_copy_len = LWIP_MIN(len_left, name_len);
                                 MEMCPY(&http_uri_buf[copy_len], httpd_default_filenames[loop].name, name_copy_len);
                                 http_uri_buf[copy_len + name_copy_len] = 0;
                             }
-                        file_name = http_uri_buf;
-                    } else
-    #endif /* LWIP_HTTPD_MAX_REQUEST_URI_LEN */
-                    file_name = httpd_default_filenames[loop].name;
-                    LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("Looking for %s...\n", file_name));
-                    if ((file = vfs_open(file_name, "r")) != NULL) {
-                        uri = file_name;
-                        LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("Opened.\n"));
-                        break;
+                            file_name = http_uri_buf;
+                        } else
+        #endif /* LWIP_HTTPD_MAX_REQUEST_URI_LEN */
+                        file_name = httpd_default_filenames[loop].name;
+                        LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("Looking for %s...\n", file_name));
+                        if ((file = vfs_open(file_name, "r")) != NULL) {
+                            uri = file_name;
+                            LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("Opened.\n"));
+                            break;
+                        }
                     }
                 }
 
@@ -1851,6 +1860,7 @@ static err_t http_process_request (struct http_state *hs, const char *uri)
                 if(httpd.on_options_report)
                     httpd.on_options_report(&hs->request);
             }
+
             return http_init_file(hs, NULL, uri, params); //ERR_OK;
             break;
 
@@ -1872,7 +1882,7 @@ static err_t http_process_request (struct http_state *hs, const char *uri)
                 } else
                     *http_uri_buf = '\0';
 
-                if((ret = httpd.on_unknown_method_process(&hs->request, hs->method, http_uri_buf, LWIP_HTTPD_URI_BUF_LEN)) == ERR_OK) {
+                if(httpd.on_unknown_method_process(&hs->request, hs->method, http_uri_buf, LWIP_HTTPD_URI_BUF_LEN) == ERR_OK) {
                     if(*http_uri_buf != '\0') {
                         uri = http_uri_buf;
                         if((file = vfs_open(uri, "r")) == NULL)
