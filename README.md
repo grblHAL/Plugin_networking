@@ -11,6 +11,12 @@ This plugin contains code for "stream based" network protocol support on top of 
 * FTP \(requires [SD card plugin](https://github.com/grblHAL/Plugin_SD_card) and card inserted\).
 * HTTP \(requires [SD card plugin](https://github.com/grblHAL/Plugin_SD_card) and card inserted\).
 * WebDAV - as an extension the HTTP daemon. __Note:__ saving files does not yet work with Windows mounts. Tested ok with WinSCP.
+* mDNS - \(multicast DomainName Server\).
+* SSDP - \(Simple Service Discovery Protocol\) requires the HTTP daemon running.
+
+The mDNS and SSDP protocols uses UPD multicast/unicast transmission of data and not all drivers are set up to handle that "out-of-the-box".  
+Various amount of manual code changes are needed to make them work, see the [RP2040 readme](https://github.com/grblHAL/RP2040/blob/master/README.md)
+and [WebUI patch](https://github.com/grblHAL/Plugin_WebUI/tree/main/lwIP%20patch) for further details.
 
 #### Dependencies:
 
@@ -34,9 +40,9 @@ These drivers has this "middleware" layer, further details for how to configure 
 
 #### Credits:
 
-Parts of WsStream.c are pulled from [patch 9525](http://savannah.nongnu.org/patch/?9525) by Sakari Kapanen.
+Parts of _websocket.c_ are pulled from [patch 9525](http://savannah.nongnu.org/patch/?9525) by Sakari Kapanen.
 
-base64.c, sha1.c by Brad Conte, pulled from from the same patch as mentioned above.
+_base64.c_, _sha1.c_ by Brad Conte, pulled from from the same patch as mentioned above.
 
 [multipartparser.c](https://github.com/francoiscolas/multipart-parser) by Fran&ccedil;ois Colas. 
 
@@ -46,7 +52,7 @@ base64.c, sha1.c by Brad Conte, pulled from from the same patch as mentioned abo
 
 [cJSON](https://github.com/DaveGamble/cJSON) Dave Gamble and cJSON contributors.
 
-wschat.html modified from original by [tutorialspoint.com](https://www.tutorialspoint.com/websockets/websockets_javascript_application.htm), for simple websocket testing \(edit line 103 to set address and port before use\).
+_wschat.html_ modified from original by [tutorialspoint.com](https://www.tutorialspoint.com/websockets/websockets_javascript_application.htm), for simple websocket testing \(edit line 103 to set address and port before use\).
 
 __NOTE:__ some drivers uses ports of lwIP provided by the MCU supplier.  
 __NOTE:__ this plugin is only for the protocol layer. Driver specific code is required for initialising lwIP and start/stop/polling the services.
@@ -56,4 +62,4 @@ __NOTE:__ this plugin is only for the protocol layer. Driver specific code is re
 ![Test](media/websocket.png)
 
 ---
-2022-09-03
+2022-10-05

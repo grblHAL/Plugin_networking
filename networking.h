@@ -79,10 +79,17 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "ftpd.h"
 #endif
 
+#if MDNS_ENABLE
+#include "lwip/apps/mdns.h"
+#endif
+
 #if HTTP_ENABLE
 #include "httpd.h"
 #if WEBDAV_ENABLE
 #include "webdav.h"
+#endif
+#if SSDP_ENABLE
+#include "networking/ssdp.h"
 #endif
 #endif
 
