@@ -1,7 +1,7 @@
 //
 // ssdp.c - Simple Service Discovery Protocol
 //
-// v0.1 / 2022-09-04 / Io Engineering / Terje
+// v0.1 / 2022-10-19 / Io Engineering / Terje
 //
 
 /*
@@ -46,9 +46,10 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "lwip/ip_addr.h"
 #include "lwip/timeouts.h"
 
-#include <string.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <string.h>
 
 #include "strutils.h"
 #include "networking.h"
@@ -142,7 +143,7 @@ static struct udp_pcb *ssdp_pcb = NULL;
 const char *ssdp_handler_get (http_request_t *request)
 {
     char xml[800];
-    vfs_file_t *file;
+    vfs_file_t *file = NULL;
     network_info_t *network = networking_get_info();
     char *mfg_url = hal.driver_url &&  hal.board_url ? hal.driver_url : GRBL_URL,
          *model_url = hal.board_url ? hal.board_url : (hal.driver_url ? hal.driver_url : GRBL_URL);
