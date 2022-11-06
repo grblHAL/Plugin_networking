@@ -262,15 +262,8 @@ char *strtoisodt (struct tm *dt)
 {
     static char buf[21];
 
-#ifdef __GNUC__
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wformat-overflow"
-#endif
     if(dt == NULL || snprintf(buf, sizeof(buf), "%04i-%02i-%02iT%02i:%02i:%02i", dt->tm_year < 1000 ? dt->tm_year + 1900 : dt->tm_year, dt->tm_mon + 1, dt->tm_mday, dt->tm_hour, dt->tm_min, dt->tm_sec) > sizeof(buf))
         *buf = '\0';
-#ifdef __GNUC__
-#pragma GCC diagnostic pop
-#endif
 
     return buf;
 }
@@ -308,15 +301,8 @@ char *strtointernetdt (struct tm *dt)
     return "Thu, 01 Jan 1970 00:00:00 GMT"; // snprintf below crashes the MCU!
 #else
 
-#ifdef __GNUC__
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wformat-overflow"
-#endif
     if(dt == NULL || snprintf(buf, sizeof(buf), "%s, %02d %s %04d %02d:%02d:%02d GMT", day_table[dt->tm_wday], dt->tm_mday, month_table[dt->tm_mon], dt->tm_year < 1000 ? dt->tm_year + 1900 : dt->tm_year, dt->tm_hour, dt->tm_min, dt->tm_sec) > sizeof(buf))
         return "Thu, 01 Jan 1970 00:00:00 GMT";
-#ifdef __GNUC__
-#pragma GCC diagnostic pop
-#endif
 
     return buf;
 
