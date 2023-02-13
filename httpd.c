@@ -209,9 +209,9 @@ typedef struct {
     u16_t next;    /* The index of the hdr string to add next. */
 } http_headers_t;
 
-typedef struct http_state {
+struct http_state {
 #if LWIP_HTTPD_KILL_OLD_ON_CONNECTIONS_EXCEEDED
-    struct http_state *next;
+    http_state_t *next;
 #endif /* LWIP_HTTPD_KILL_OLD_ON_CONNECTIONS_EXCEEDED */
     vfs_file_t *handle;
     const char *file;       /* Pointer to first unsent byte in buf. */
@@ -249,7 +249,7 @@ typedef struct http_state {
     u8_t no_auto_wnd;
     u8_t post_finished;
 #endif /* LWIP_HTTPD_POST_MANUAL_WND */
-} http_state_t;
+};
 
 /**/
 
@@ -371,20 +371,20 @@ static char http_uri_buf[LWIP_HTTPD_URI_BUF_LEN + 1];
 #endif
 
 #if HTTPD_USE_MEM_POOL
-LWIP_MEMPOOL_DECLARE(HTTPD_STATE,     MEMP_NUM_PARALLEL_HTTPD_CONNS,     sizeof(struct http_state),     "HTTPD_STATE")
-#define HTTP_ALLOC_HTTP_STATE() (struct http_state *)LWIP_MEMPOOL_ALLOC(HTTPD_STATE)
+LWIP_MEMPOOL_DECLARE(HTTPD_STATE,     MEMP_NUM_PARALLEL_HTTPD_CONNS,     sizeof(http_state_t),     "HTTPD_STATE")
+#define HTTP_ALLOC_HTTP_STATE() (http_state_t *)LWIP_MEMPOOL_ALLOC(HTTPD_STATE)
 #define HTTP_FREE_HTTP_STATE(x) LWIP_MEMPOOL_FREE(HTTPD_STATE, (x))
 #else /* HTTPD_USE_MEM_POOL */
-#define HTTP_ALLOC_HTTP_STATE() (struct http_state *)mem_malloc(sizeof(struct http_state))
+#define HTTP_ALLOC_HTTP_STATE() (http_state_t *)mem_malloc(sizeof(http_state_t))
 #define HTTP_FREE_HTTP_STATE(x) mem_free(x)
 #endif /* HTTPD_USE_MEM_POOL */
 
-static err_t http_close_conn (struct altcp_pcb *pcb, struct http_state *hs);
-static err_t http_close_or_abort_conn (struct altcp_pcb *pcb, struct http_state *hs, u8_t abort_conn);
-static err_t http_init_file (struct http_state *hs, vfs_file_t *file, const char *uri, char *params);
+static err_t http_close_conn (struct altcp_pcb *pcb, http_state_t *hs);
+static err_t http_close_or_abort_conn (struct altcp_pcb *pcb, http_state_t *hs, u8_t abort_conn);
+static err_t http_init_file (http_state_t *hs, vfs_file_t *file, const char *uri, char *params);
 static err_t http_poll (void *arg, struct altcp_pcb *pcb);
-static bool http_check_eof (struct altcp_pcb *pcb, struct http_state *hs);
-static err_t http_process_request (struct http_state *hs, const char *uri);
+static bool http_check_eof (struct altcp_pcb *pcb, http_state_t *hs);
+static err_t http_process_request (http_state_t *hs, const char *uri);
 #if LWIP_HTTPD_FS_ASYNC_READ
 static void http_continue (void *connection);
 #endif /* LWIP_HTTPD_FS_ASYNC_READ */
@@ -395,23 +395,23 @@ static uint_fast8_t num_uri_handlers;
 
 #if LWIP_HTTPD_KILL_OLD_ON_CONNECTIONS_EXCEEDED
 /** global list of active HTTP connections, use to kill the oldest when running out of memory */
-static struct http_state *http_connections;
+static http_state_t *http_connections;
 
-static void http_add_connection (struct http_state *hs)
+static void http_add_connection (http_state_t *hs)
 {
     /* add the connection to the list */
     hs->next = http_connections;
     http_connections = hs;
 }
 
-static void http_remove_connection (struct http_state *hs)
+static void http_remove_connection (http_state_t *hs)
 {
     /* take the connection off the list */
     if (http_connections) {
         if (http_connections == hs) {
             http_connections = hs->next;
         } else {
-            struct http_state *last;
+            http_state_t *last;
             for (last = http_connections; last->next != NULL; last = last->next) {
                 if (last->next == hs) {
                     last->next = hs->next;
@@ -424,8 +424,8 @@ static void http_remove_connection (struct http_state *hs)
 
 static void http_kill_oldest_connection (u8_t ssi_required)
 {
-    struct http_state *hs = http_connections;
-    struct http_state *hs_free_next = NULL;
+    http_state_t *hs = http_connections;
+    http_state_t *hs_free_next = NULL;
 
     while (hs && hs->next) {
 #if LWIP_HTTPD_SSI
@@ -458,12 +458,12 @@ static void http_kill_oldest_connection (u8_t ssi_required)
 
 #endif /* LWIP_HTTPD_KILL_OLD_ON_CONNECTIONS_EXCEEDED */
 
-/** Initialize a struct http_state.
+/** Initialize a http_state_t.
  */
-static void http_state_init (struct http_state *hs)
+static void http_state_init (http_state_t *hs)
 {
     /* Initialize the structure. */
-    memset(hs, 0, sizeof(struct http_state));
+    memset(hs, 0, sizeof(http_state_t));
 
     hs->request.handle = hs;
 
@@ -473,10 +473,10 @@ static void http_state_init (struct http_state *hs)
 #endif /* LWIP_HTTPD_DYNAMIC_HEADERS */
 }
 
-/** Allocate a struct http_state. */
-static struct http_state *http_state_alloc (void)
+/** Allocate a http_state_t. */
+static http_state_t *http_state_alloc (void)
 {
-    struct http_state *ret = HTTP_ALLOC_HTTP_STATE();
+    http_state_t *ret = HTTP_ALLOC_HTTP_STATE();
 
 #if LWIP_HTTPD_KILL_OLD_ON_CONNECTIONS_EXCEEDED
     if (ret == NULL) {
@@ -493,10 +493,10 @@ static struct http_state *http_state_alloc (void)
     return ret;
 }
 
-/** Free a struct http_state.
+/** Free a http_state_t.
  * Also frees the file data if dynamic.
  */
-static void http_state_eof (struct http_state *hs)
+static void http_state_eof (http_state_t *hs)
 {
     if (hs->handle) {
 #if LWIP_HTTPD_TIMING
@@ -536,10 +536,10 @@ void http_set_allowed_methods (const char *methods)
     http_methods = methods;
 }
 
-/** Free a struct http_state.
+/** Free a http_state_t.
  * Also frees the file data if dynamic.
  */
-static void http_state_free (struct http_state *hs)
+static void http_state_free (http_state_t *hs)
 {
     if (hs != NULL) {
         if(hs->request.on_request_completed)
@@ -552,28 +552,28 @@ static void http_state_free (struct http_state *hs)
 
 ip_addr_t http_get_remote_ip (http_request_t *request)
 {
-    return request ? ((http_state_t *)request->handle)->pcb->remote_ip : (ip_addr_t){0};
+    return request ? request->handle->pcb->remote_ip : (ip_addr_t){0};
 }
 
 uint16_t http_get_remote_port (http_request_t *request)
 {
-    return request ? ((http_state_t *)request->handle)->pcb->remote_port : 0;
+    return request ? request->handle->pcb->remote_port : 0;
 }
 
 const char *http_get_uri (http_request_t *request)
 {
-    return request ? ((http_state_t *)request->handle)->uri : NULL;
+    return request ? request->handle->uri : NULL;
 }
 
 uint8_t http_get_param_count (http_request_t *request)
 {
-    return request ? ((http_state_t *)request->handle)->param_count : 0;
+    return request ? request->handle->param_count : 0;
 }
 
 char *http_get_param_value (http_request_t *request, const char *name, char *value, uint32_t size)
 {
     bool found = false;
-    http_state_t *hs = (http_state_t *)request->handle;
+    http_state_t *hs = request->handle;
     uint_fast8_t idx = hs->param_count;
 
     *value = '\0';
@@ -590,7 +590,7 @@ int http_get_header_value_len (http_request_t *request, const char *name)
 {
     int len = -1;
     char *hdr, *end;
-    http_state_t *hs = (http_state_t *)request->handle;
+    http_state_t *hs = request->handle;
 
     if ((hdr = lwip_strnstr(hs->hdr, name, hs->hdr_len))) {
         hdr += strlen(name);
@@ -609,7 +609,7 @@ int http_get_header_value_len (http_request_t *request, const char *name)
 char *http_get_header_value (http_request_t *request, const char *name, char *value, uint32_t size)
 {
     char *hdr, *end = NULL;
-    http_state_t *hs = (http_state_t *)request->handle;
+    http_state_t *hs = request->handle;
     size_t len = strlen(name);
 
     *value = '\0';
@@ -698,7 +698,7 @@ static err_t http_write (struct altcp_pcb *pcb, const void *ptr, u16_t *length, 
  * @param pcb the tcp pcb to reset callbacks
  * @param hs connection state to free
  */
-static err_t http_close_or_abort_conn (struct altcp_pcb *pcb, struct http_state *hs, u8_t abort_conn)
+static err_t http_close_or_abort_conn (struct altcp_pcb *pcb, http_state_t *hs, u8_t abort_conn)
 {
     err_t err;
     LWIP_DEBUGF(HTTPD_DEBUG, ("Closing connection %p\n", (void *)pcb));
@@ -744,7 +744,7 @@ static err_t http_close_or_abort_conn (struct altcp_pcb *pcb, struct http_state 
  * @param pcb the tcp pcb to reset callbacks
  * @param hs connection state to free
  */
-static err_t http_close_conn (struct altcp_pcb *pcb, struct http_state *hs)
+static err_t http_close_conn (struct altcp_pcb *pcb, http_state_t *hs)
 {
   return http_close_or_abort_conn(pcb, hs, 0);
 }
@@ -752,7 +752,7 @@ static err_t http_close_conn (struct altcp_pcb *pcb, struct http_state *hs)
 /** End of file: either close the connection (Connection: close) or
  * close the file (Connection: keep-alive)
  */
-static void http_eof (struct altcp_pcb *pcb, struct http_state *hs)
+static void http_eof (struct altcp_pcb *pcb, http_state_t *hs)
 {
     /* HTTP/1.1 persistent connection? (Not supported for SSI) */
 #if LWIP_HTTPD_SUPPORT_11_KEEPALIVE
@@ -781,7 +781,7 @@ static void http_eof (struct altcp_pcb *pcb, struct http_state *hs)
  * @param params pointer to the NULL-terminated parameter string from the URI
  * @return number of parameters extracted
  */
-static uint_fast8_t extract_uri_parameters (struct http_state *hs, char *params)
+static uint_fast8_t extract_uri_parameters (http_state_t *hs, char *params)
 {
     char *pair, *equals;
     uint_fast8_t loop;
@@ -828,7 +828,7 @@ static uint_fast8_t extract_uri_parameters (struct http_state *hs, char *params)
 
 #if LWIP_HTTPD_DYNAMIC_HEADERS
 
-static bool is_response_header_set (struct http_state *hs, const char *name)
+static bool is_response_header_set (http_state_t *hs, const char *name)
 {
     bool is_set = false;
 
@@ -844,7 +844,7 @@ static bool is_response_header_set (struct http_state *hs, const char *name)
 bool http_set_response_header (http_request_t *request, const char *name, const char *value)
 {
     bool ok;
-    http_state_t *hs = (http_state_t *)request->handle;
+    http_state_t *hs = request->handle;
 
     if((ok = hs->response_hdr.next < (NUM_FILE_HDR_STRINGS - 1))) {
 
@@ -863,7 +863,7 @@ bool http_set_response_header (http_request_t *request, const char *name, const 
 
 void http_set_response_status (http_request_t *request, const char *status)
 {
-    http_state_t *hs = (http_state_t *)request->handle;
+    http_state_t *hs = request->handle;
 
     char *hdr;
 
@@ -879,7 +879,7 @@ void http_set_response_status (http_request_t *request, const char *status)
 special case.  We assume that any filename with "404" in it must be
 indicative of a 404 server error whereas all other files require
 the 200 OK header. */
-static void set_content_type (struct http_state *hs, const char *uri)
+static void set_content_type (http_state_t *hs, const char *uri)
 {
     if(!is_response_header_set(hs, "Content-Type") && hs->response_hdr.next < NUM_FILE_HDR_STRINGS) {
 
@@ -919,7 +919,7 @@ static void set_content_type (struct http_state *hs, const char *uri)
 }
 
 /* Add content-length header? */
-static void get_http_content_length (struct http_state *hs, int file_len)
+static void get_http_content_length (http_state_t *hs, int file_len)
 {
     bool add_content_len = false;
 
@@ -954,7 +954,7 @@ static void get_http_content_length (struct http_state *hs, int file_len)
  * Generate the relevant HTTP headers for the given filename and write
  * them into the supplied buffer.
  */
-static void get_http_headers (struct http_state *hs, const char *uri)
+static void get_http_headers (http_state_t *hs, const char *uri)
 {
     if(hs->response_hdr.string[HDR_STRINGS_IDX_HTTP_STATUS] == NULL) {
 
@@ -1005,7 +1005,7 @@ static void get_http_headers (struct http_state *hs, const char *uri)
  *                                      so don't send HTTP body yet
  *           - HTTPSend_Freed: http_state and pcb are already freed
  */
-static http_send_state_t http_send_headers (struct altcp_pcb *pcb, struct http_state *hs)
+static http_send_state_t http_send_headers (struct altcp_pcb *pcb, http_state_t *hs)
 {
     err_t err;
     u16_t len, hdrlen, sendlen;
@@ -1102,7 +1102,7 @@ static http_send_state_t http_send_headers (struct altcp_pcb *pcb, struct http_s
  * @returns: false if the file is finished or no data has been read
  *           true if the file is not finished and data has been read
  */
-static bool http_check_eof (struct altcp_pcb *pcb, struct http_state *hs)
+static bool http_check_eof (struct altcp_pcb *pcb, http_state_t *hs)
 {
     int bytes_left;
 #if LWIP_HTTPD_DYNAMIC_FILE_READ
@@ -1220,7 +1220,7 @@ static bool http_check_eof (struct altcp_pcb *pcb, struct http_state *hs)
  * @returns: - HTTPSend_Continue: data has been written (so call tcp_ouput)
  *           - HTTPSend_NoData: no data has been written (no need to call tcp_output)
  */
-static http_send_state_t http_send_data_nonssi (struct altcp_pcb *pcb, struct http_state *hs)
+static http_send_state_t http_send_data_nonssi (struct altcp_pcb *pcb, http_state_t *hs)
 {
     u16_t len;
     http_send_state_t data_to_send;
@@ -1243,7 +1243,7 @@ static http_send_state_t http_send_data_nonssi (struct altcp_pcb *pcb, struct ht
  * @param pcb the pcb to send data
  * @param hs connection state
  */
-static http_send_state_t http_send (struct altcp_pcb *pcb, struct http_state *hs)
+static http_send_state_t http_send (struct altcp_pcb *pcb, http_state_t *hs)
 {
     http_send_state_t data_to_send = HTTPSend_NoData;
 
@@ -1304,7 +1304,7 @@ static http_send_state_t http_send (struct altcp_pcb *pcb, struct http_state *hs
  * @return ERR_OK if file was found and hs has been initialized correctly
  *         another err_t otherwise
  */
-static err_t http_find_error_file (struct http_state *hs, u16_t error_nr)
+static err_t http_find_error_file (http_state_t *hs, u16_t error_nr)
 {
     vfs_file_t *file;
     const char *uri, *uri1, *uri2, *uri3;
@@ -1344,7 +1344,7 @@ static err_t http_find_error_file (struct http_state *hs, u16_t error_nr)
  * @param uri pointer that receives the actual file name URI
  * @return file struct for the error page or NULL no matching file was found
  */
-static vfs_file_t *http_get_404_file (struct http_state *hs, const char **uri)
+static vfs_file_t *http_get_404_file (http_state_t *hs, const char **uri)
 {
     vfs_file_t *file;
 
@@ -1371,7 +1371,7 @@ static vfs_file_t *http_get_404_file (struct http_state *hs, const char **uri)
     return file;
 }
 
-static err_t http_handle_post_finished (struct http_state *hs)
+static err_t http_handle_post_finished (http_state_t *hs)
 {
 #if LWIP_HTTPD_POST_MANUAL_WND
     /* Prevent multiple calls to httpd_post_finished, since it might have already
@@ -1409,7 +1409,7 @@ static err_t http_handle_post_finished (struct http_state *hs)
  * @return ERR_OK if passed successfully, another err_t if the response file
  *         hasn't been found (after POST finished)
  */
-static err_t http_post_rxpbuf (struct http_state *hs, struct pbuf *p)
+static err_t http_post_rxpbuf (http_state_t *hs, struct pbuf *p)
 {
     err_t err;
 
@@ -1449,7 +1449,7 @@ static err_t http_post_rxpbuf (struct http_state *hs, struct pbuf *p)
 
 void httpd_free_pbuf (http_request_t *request, struct pbuf *p)
 {
-    altcp_recved(((http_state_t *)(request->handle))->pcb, p->tot_len);
+    altcp_recved(request->handle->pcb, p->tot_len);
     pbuf_free(p);
 }
 
@@ -1466,7 +1466,7 @@ void httpd_free_pbuf (http_request_t *request, struct pbuf *p)
  */
 void httpd_post_data_recved(void *connection, u16_t recved_len)
 {
-  struct http_state *hs = (struct http_state *)connection;
+  http_state_t *hs = (http_state_t *)connection;
   if (hs != NULL) {
     if (hs->no_auto_wnd) {
       u16_t len = recved_len;
@@ -1498,7 +1498,7 @@ void httpd_post_data_recved(void *connection, u16_t recved_len)
  */
 static void http_continue(void *connection)
 {
-  struct http_state *hs = (struct http_state *)connection;
+  http_state_t *hs = (http_state_t *)connection;
   LWIP_ASSERT_CORE_LOCKED();
   if (hs && (hs->pcb) && (hs->handle)) {
     LWIP_ASSERT("hs->pcb != NULL", hs->pcb != NULL);
@@ -1514,7 +1514,7 @@ static void http_continue(void *connection)
 
 err_t http_get_payload (http_request_t *request, uint32_t len)
 {
-    http_state_t *hs = (http_state_t *)request->handle;
+    http_state_t *hs = request->handle;
 
     if((hs->post_content_len_left = len) > 0) {
 
@@ -1562,7 +1562,7 @@ err_t http_get_payload (http_request_t *request, uint32_t len)
  *         ERR_INPROGRESS if request was OK so far but not fully received
  *         another err_t otherwise
  */
-static err_t http_parse_request (struct pbuf *inp, struct http_state *hs, struct altcp_pcb *pcb)
+static err_t http_parse_request (struct pbuf *inp, http_state_t *hs, struct altcp_pcb *pcb)
 {
     char *data;
     u16_t data_len;
@@ -1727,7 +1727,7 @@ static err_t http_parse_request (struct pbuf *inp, struct http_state *hs, struct
  * @return ERR_OK if file was found and hs has been initialized correctly
  *         another err_t otherwise
  */
-static err_t http_process_request (struct http_state *hs, const char *uri)
+static err_t http_process_request (http_state_t *hs, const char *uri)
 {
     char *params = NULL;
     vfs_file_t *file = NULL;
@@ -1939,12 +1939,12 @@ static err_t http_process_request (struct http_state *hs, const char *uri)
  * @return ERR_OK if file was found and hs has been initialized correctly
  *         another err_t otherwise
  */
-static err_t http_init_file (struct http_state *hs, vfs_file_t *file, const char *uri, char *params)
+static err_t http_init_file (http_state_t *hs, vfs_file_t *file, const char *uri, char *params)
 {
     LWIP_UNUSED_ARG(params);
 
     if (file != NULL) {
-        /* file opened, initialise struct http_state */
+        /* file opened, initialise http_state_t */
 #if !LWIP_HTTPD_DYNAMIC_FILE_READ
         /* If dynamic read is disabled, file data must be in one piece and available now */
         LWIP_ASSERT("file->data != NULL", file->data != NULL);
@@ -2007,7 +2007,7 @@ static err_t http_init_file (struct http_state *hs, vfs_file_t *file, const char
  */
 static void http_err (void *arg, err_t err)
 {
-    struct http_state *hs = (struct http_state *)arg;
+    http_state_t *hs = (http_state_t *)arg;
     LWIP_UNUSED_ARG(err);
 
     LWIP_DEBUGF(HTTPD_DEBUG, ("http_err: %s", lwip_strerr(err)));
@@ -2022,7 +2022,7 @@ static void http_err (void *arg, err_t err)
  */
 static err_t http_sent (void *arg, struct altcp_pcb *pcb, u16_t len)
 {
-  struct http_state *hs = (struct http_state *)arg;
+  http_state_t *hs = (http_state_t *)arg;
 
   LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("http_sent %p\n", (void *)pcb));
 
@@ -2045,7 +2045,7 @@ static err_t http_sent (void *arg, struct altcp_pcb *pcb, u16_t len)
  */
 static err_t http_poll (void *arg, struct altcp_pcb *pcb)
 {
-    struct http_state *hs = (struct http_state *)arg;
+    http_state_t *hs = (http_state_t *)arg;
     //  LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("http_poll: pcb=%p hs=%p pcb_state=%s\n",
     //              (void *)pcb, (void *)hs, tcp_debug_state_str(altcp_dbg_get_tcp_state(pcb))));
 
@@ -2094,7 +2094,7 @@ static err_t http_poll (void *arg, struct altcp_pcb *pcb)
  */
 static err_t http_recv (void *arg, struct altcp_pcb *pcb, struct pbuf *p, err_t err)
 {
-    struct http_state *hs = (struct http_state *)arg;
+    http_state_t *hs = (http_state_t *)arg;
 
     LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("http_recv: pcb=%p pbuf=%p err=%s\n", (void *)pcb, (void *)p, lwip_strerr(err)));
 
@@ -2180,7 +2180,7 @@ static err_t http_recv (void *arg, struct altcp_pcb *pcb, struct pbuf *p, err_t 
  */
 static err_t http_accept (void *arg, struct altcp_pcb *pcb, err_t err)
 {
-    struct http_state *hs;
+    http_state_t *hs;
 
     LWIP_UNUSED_ARG(err);
     LWIP_UNUSED_ARG(arg);

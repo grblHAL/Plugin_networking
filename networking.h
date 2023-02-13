@@ -1,12 +1,12 @@
 //
 // networking.h - some shared networking code
 //
-// v1.5 / 2022-08-25 / Io Engineering / Terje
+// v1.7 / 2023-02-12 / Io Engineering / Terje
 //
 
 /*
 
-Copyright (c) 2019-2022, Terje Io
+Copyright (c) 2019-2023, Terje Io
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -83,6 +83,11 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "lwip/apps/mdns.h"
 #endif
 
+#if MQTT_ENABLE
+#include "lwip/apps/mqtt.h"
+#include "./mqtt.h"
+#endif
+
 #if HTTP_ENABLE
 #include "httpd.h"
 #if WEBDAV_ENABLE
@@ -134,10 +139,10 @@ typedef uint32_t TickType_t;
 #define SYS_ARCH_PROTECT(lev)
 #define SYS_ARCH_UNPROTECT(lev)
 #define SYS_ARCH_DECL_PROTECT(lev)
-
 #endif
 
 #define NETWORK_SERVICES_LEN 50
+#define MAC_FORMAT_STRING "%02x:%02x:%02x:%02x:%02x:%02x"
 
 typedef struct
 {
@@ -146,7 +151,11 @@ typedef struct
     struct tcp_pcb *pcb;
 } tcp_server_t;
 
+bool networking_ismemnull (void *data, size_t len);
 network_services_t networking_get_services_list (char *list);
+#if MQTT_ENABLE
+void networking_make_mqtt_clientid (const char *mac, char *client_id);
+#endif
 
 /* API functions to be provided by driver for WebUI support */
 

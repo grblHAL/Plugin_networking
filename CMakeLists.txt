@@ -20,6 +20,7 @@ target_sources(networking INTERFACE
  ${CMAKE_CURRENT_LIST_DIR}/webdav.c
  ${CMAKE_CURRENT_LIST_DIR}/websocketd.c
  ${CMAKE_CURRENT_LIST_DIR}/ssdp.c
-)
+ ${CMAKE_CURRENT_LIST_DIR}/mqtt.c
+ )
 
 target_include_directories(networking INTERFACE ${CMAKE_CURRENT_LIST_DIR})

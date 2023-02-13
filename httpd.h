@@ -87,8 +87,11 @@ typedef enum {
     HTTP_Unlock,
 } http_method_t;
 
+struct http_state; // members defined in httpd.c
+typedef struct http_state http_state_t;
+
 typedef struct http_request {
-    void *handle;
+    http_state_t *handle;
     void *private_data;
     err_t (*post_receive_data)(struct http_request *request, struct pbuf *p);
     void (*post_finished)(struct http_request *request, char *response_uri, u16_t response_uri_len);

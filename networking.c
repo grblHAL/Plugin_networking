@@ -1,12 +1,12 @@
 //
 // networking.c - some shared networking code
 //
-// v1.6 / 2022-09-03 / Io Engineering / Terje
+// v1.7 / 2023-02-12 / Io Engineering / Terje
 //
 
 /*
 
-Copyright (c) 2021-2022, Terje Io
+Copyright (c) 2021-2023, Terje Io
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -77,9 +77,14 @@ PROGMEM static const network_services_t allowed_services = {
     .mdns = 1,
 #endif
 #if SSDP_ENABLE
-    .ssdp = 1
+    .ssdp = 1,
 #endif
 };
+
+#ifdef __GNUC__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wstringop-overflow"
+#endif
 
 network_services_t networking_get_services_list (char *list)
 {
@@ -97,5 +102,44 @@ network_services_t networking_get_services_list (char *list)
 
     return *list != '\0' ? allowed_services : (network_services_t){0};
 }
+
+bool networking_ismemnull (void *data, size_t len)
+{
+    uint8_t *p = data;
+
+    do {
+        if(*p++ != 0)
+            return false;
+    } while(--len);
+
+    return true;
+}
+
+#if MQTT_ENABLE
+
+// Create MQTT client id from last three values of MAC address
+void networking_make_mqtt_clientid (const char *mac, char *client_id)
+{
+    if(*mac) {
+
+        char c, *s1, *s2 = (char *)mac + 9;
+
+        strcpy(client_id, "grblHAL.");
+        s1 = strchr(client_id, '\0');
+
+        while((c = *s2++)) {
+            if(c != ':')
+                *s1++ = c;
+        }
+        *s1 = '\0';
+    } else
+        strcpy(client_id, "grblHAL");
+}
+
+#endif
+
+#ifdef __GNUC__
+#pragma GCC diagnostic pop
+#endif
 
 #endif // ETHERNET_ENABLE || WIFI_ENABLE

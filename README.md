@@ -12,15 +12,34 @@ This plugin contains code for "stream based" network protocol support on top of 
 * HTTP \(requires [SD card plugin](https://github.com/grblHAL/Plugin_SD_card) and card inserted\).
 * WebDAV - as an extension the HTTP daemon. __Note:__ saving files does not yet work with Windows mounts. Tested ok with WinSCP.
 * mDNS - \(multicast DomainName Server\).
-* SSDP - \(Simple Service Discovery Protocol\) requires the HTTP daemon running.
+* SSDP - \(Simple Service Discovery Protocol\). Requires the HTTP daemon running.
 
 The mDNS and SSDP protocols uses UPD multicast/unicast transmission of data and not all drivers are set up to handle that "out-of-the-box".  
-Various amount of manual code changes are needed to make them work, see the [RP2040 readme](https://github.com/grblHAL/RP2040/blob/master/README.md)
-and [WebUI patch](https://github.com/grblHAL/Plugin_WebUI/tree/main/lwIP%20patch) for further details.
+Various amount of manual code changes are needed to make them work, see the [RP2040 readme](https://github.com/grblHAL/RP2040/blob/master/README.md).
+
+#### Client protocols supported:
+
+* MQTT - \(MQ Telemetry Transport\). A programming API is provided for plugin code, not used by standard code.
+
+MQTT requires lwIP 2.1.x for authentication support \(username & password\). [Template/example](https://github.com/grblHAL/Templates/tree/master/my_plugin/MQTT%20example) code is available.
+
+__NOTE:__ The API is work in progress and calls and call signatures may change.
+
+#### Driver support:
+
+| Driver                                                            |lwIP version| FlashFS              | MQTT API |
+|-------------------------------------------------------------------|------------|----------------------|----------|
+| [iMXRT1062 \(Teensy 4.1\)](https://github.com/grblHAL/iMXRT1062)  | 2.1.3      | littlefs             | yes      |
+| [RP2040 \(Pi Pico W\)](https://github.com/grblHAL/RP2040)         | 2.1.1      | littlefs             | yes      |
+| [ESP32](https://github.com/grblHAL/ESP32)                         | ?          | littlefs             | yes      |
+| [STM32F756](https://github.com/grblHAL/STM32F7xx)                 | 2.1.2      | no                   | yes      |
+| [STM32H7xx](https://github.com/dresco/STM32H7xx)                  | ?          | TBA                  | TBA      |
+| [MSP432E401Y](https://github.com/grblHAL/MSP432E401Y)             | 2.0.2      | littlefs<sup>1</sup> | no       |
+
 
 #### Dependencies:
 
-[lwIP library](http://savannah.nongnu.org/projects/lwip/)
+[lwIP library](http://savannah.nongnu.org/projects/lwip/) - 2.1.0 or later for http daemon.
 
 Driver capable of networking and having the required "middleware" layer on top of lwIP.
 
@@ -62,4 +81,4 @@ __NOTE:__ this plugin is only for the protocol layer. Driver specific code is re
 ![Test](media/websocket.png)
 
 ---
-2022-10-05
+2023-02-13
