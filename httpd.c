@@ -140,7 +140,7 @@ typedef struct {
 #define HTTP_HDR_CSV            HTTP_CONTENT_TYPE("text/csv")
 #define HTTP_HDR_TSV            HTTP_CONTENT_TYPE("text/tsv")
 #define HTTP_HDR_SVG            HTTP_CONTENT_TYPE("image/svg+xml")
-#define HTTP_HDR_GZIP           HTTP_CONTENT_TYPE("application/gzip")
+#define HTTP_HDR_GZIP           HTTP_CONTENT_TYPE_ENCODING("application/gzip", "gzip")
 #define HTTP_HDR_SVGZ           HTTP_CONTENT_TYPE_ENCODING("image/svg+xml", "gzip")
 
 #define HTTP_HDR_DEFAULT_TYPE   HTTP_CONTENT_TYPE("text/plain")
@@ -1779,23 +1779,24 @@ static err_t http_process_request (http_state_t *hs, const char *uri)
 
         case HTTP_Get:
             if(params == NULL) {
+            	bool is_dir;
                 size_t loop;
                 /* Have we been asked for the default file (in root or a directory) ? */
-        #if LWIP_HTTPD_MAX_REQUEST_URI_LEN
+#if LWIP_HTTPD_MAX_REQUEST_URI_LEN
                 size_t uri_len = strlen(uri);
-                if ((uri_len > 0) && (uri[uri_len - 1] == '/') && ((uri != http_uri_buf) || (uri_len == 1))) {
+                if((is_dir = (uri_len > 0) && (uri[uri_len - 1] == '/') && ((uri != http_uri_buf) || (uri_len == 1)))) {
                     size_t copy_len = LWIP_MIN(sizeof(http_uri_buf) - 1, uri_len - 1);
                     if (copy_len > 0) {
                         MEMCPY(http_uri_buf, uri, copy_len);
                         http_uri_buf[copy_len] = '\0';
                     }
-        #else /* LWIP_HTTPD_MAX_REQUEST_URI_LEN */
-                if ((uri[0] == '/') &&  (uri[1] == '\0')) {
-        #endif /* LWIP_HTTPD_MAX_REQUEST_URI_LEN */
+#else /* LWIP_HTTPD_MAX_REQUEST_URI_LEN */
+                if((is_dir = (uri[0] == '/') && (uri[1] == '\0'))) {
+#endif /* LWIP_HTTPD_MAX_REQUEST_URI_LEN */
                     /* Try each of the configured default filenames until we find one that exists. */
                     for (loop = 0; loop < NUM_DEFAULT_FILENAMES; loop++) {
                         const char *file_name;
-        #if LWIP_HTTPD_MAX_REQUEST_URI_LEN
+#if LWIP_HTTPD_MAX_REQUEST_URI_LEN
                         if (copy_len > 0) {
                             size_t len_left = sizeof(http_uri_buf) - copy_len - 1;
                             if (len_left > 0) {
@@ -1806,7 +1807,7 @@ static err_t http_process_request (http_state_t *hs, const char *uri)
                             }
                             file_name = http_uri_buf;
                         } else
-        #endif /* LWIP_HTTPD_MAX_REQUEST_URI_LEN */
+#endif /* LWIP_HTTPD_MAX_REQUEST_URI_LEN */
                         file_name = httpd_default_filenames[loop].name;
                         LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("Looking for %s...\n", file_name));
                         if ((file = vfs_open(file_name, "r")) != NULL) {
@@ -1817,8 +1818,10 @@ static err_t http_process_request (http_state_t *hs, const char *uri)
                     }
                 }
 
-                if(file == NULL && httpd.on_open_file_failed)
-                    uri = httpd.on_open_file_failed(&hs->request, uri, &file, "r");
+                if(file == NULL && !is_dir) {
+                    if((file = vfs_open(uri, "r")) == NULL && httpd.on_open_file_failed)
+                        uri = httpd.on_open_file_failed(&hs->request, uri, &file, "r");
+                }
             } 
 
             if(file == NULL && uri_handler) {
