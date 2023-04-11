@@ -41,6 +41,7 @@
 /*
  * 2022-08-14: Modified by Terje Io for grblHAL networking
  * 2022-08-25: Modified by Terje Io for grblHAL VFS
+ * 2023-04-11: Modified by Terje Io to improve handling of content encoding
  */
 
 #ifndef _HTTPD_H
@@ -87,11 +88,19 @@ typedef enum {
     HTTP_Unlock,
 } http_method_t;
 
+typedef enum {
+    HTTPEncoding_None = 0,
+    HTTPEncoding_Compress,
+    HTTPEncoding_Deflate,
+    HTTPEncoding_GZIP,
+} http_encoding_t;
+
 struct http_state; // members defined in httpd.c
 typedef struct http_state http_state_t;
 
 typedef struct http_request {
     http_state_t *handle;
+    http_encoding_t encoding;
     void *private_data;
     err_t (*post_receive_data)(struct http_request *request, struct pbuf *p);
     void (*post_finished)(struct http_request *request, char *response_uri, u16_t response_uri_len);

@@ -39,6 +39,7 @@
 /*
  * 2022-08-14: Modified by Terje Io for grblHAL networking.
  * 2022-08-27: Modified by Terje Io for grblHAL VFS
+ * 2023-04-11: Modified by Terje Io to improve handling of content encoding
  */
 
 /**
@@ -61,7 +62,7 @@
  *
  * The list of supported file types is quite short, so if makefsdata complains
  * about an unknown extension, make sure to add it (and its doctype) to
- * the 'g_psHTTPHeaders' list.
+ * the 'httpd_headers' list.
  */
 
 #ifdef ARDUINO
@@ -100,10 +101,10 @@
 #if LWIP_HTTPD_DYNAMIC_HEADERS
 
 /* The number of individual strings that comprise the headers sent before each requested file. */
-#define NUM_FILE_HDR_STRINGS 7
-#define HDR_STRINGS_IDX_HTTP_STATUS           0 /* e.g. "HTTP/1.0 200 OK\r\n" */
-#define HDR_STRINGS_IDX_SERVER_NAME           1 /* e.g. "Server: "HTTPD_SERVER_AGENT"\r\n" */
-#define HDR_STRINGS_IDX_CONTENT_NEXT          2 /* the content type (or default answer content type including default document) */
+#define NUM_FILE_HDR_STRINGS            8
+#define HDR_STRINGS_IDX_HTTP_STATUS     0 /* e.g. "HTTP/1.0 200 OK\r\n" */
+#define HDR_STRINGS_IDX_SERVER_NAME     1 /* e.g. "Server: "HTTPD_SERVER_AGENT"\r\n" */
+#define HDR_STRINGS_IDX_CONTENT_NEXT    2 /* the content type (or default answer content type including default document) */
 
 /* The dynamically generated Content-Length buffer needs space for CRLF + CRLF + NULL */
 #define LWIP_HTTPD_MAX_CONTENT_LEN_OFFSET 5
@@ -112,17 +113,23 @@
 #define LWIP_HTTPD_MAX_CONTENT_LEN_SIZE   (9 + LWIP_HTTPD_MAX_CONTENT_LEN_OFFSET)
 #endif
 
+// Keep in sync with http_encoding_t!
+static const char *httpd_encodings[] = {
+    "Content-Encoding: compress\r\n",
+    "Content-Encoding: deflate\r\n",
+    "Content-Encoding: gzip\r\n"
+};
+
 /** This struct is used for a list of HTTP header strings for various filename extensions. */
 typedef struct {
   const char *extension;
   const char *content_type;
-} tHTTPHeader;
+} http_header_t;
 
-#define HTTP_CONTENT_TYPE(contenttype) "Content-Type: "contenttype"\r\n"
-#define HTTP_CONTENT_TYPE_ENCODING(contenttype, encoding) "Content-Type: "contenttype"\r\nContent-Encoding: "encoding"\r\n"
+#define HTTP_CONTENT_TYPE(contenttype) "Content-Type: " contenttype "\r\n"
+#define HTTP_CONTENT_TYPE_ENCODING(contenttype, encoding) "Content-Type: " contenttype "\r\nContent-Encoding: " encoding "\r\n"
 
 #define HTTP_HDR_HTML           HTTP_CONTENT_TYPE("text/html; charset=UTF-8")
-#define HTTP_HDR_HTML_GZ        HTTP_CONTENT_TYPE_ENCODING("text/html; charset=UTF-8", "gzip")
 #define HTTP_HDR_SSI            HTTP_CONTENT_TYPE("text/html\r\nExpires: Fri, 10 Apr 2008 14:00:00 GMT\r\nPragma: no-cache")
 #define HTTP_HDR_GIF            HTTP_CONTENT_TYPE("image/gif")
 #define HTTP_HDR_PNG            HTTP_CONTENT_TYPE("image/png")
@@ -140,7 +147,7 @@ typedef struct {
 #define HTTP_HDR_CSV            HTTP_CONTENT_TYPE("text/csv")
 #define HTTP_HDR_TSV            HTTP_CONTENT_TYPE("text/tsv")
 #define HTTP_HDR_SVG            HTTP_CONTENT_TYPE("image/svg+xml")
-#define HTTP_HDR_GZIP           HTTP_CONTENT_TYPE_ENCODING("application/gzip", "gzip")
+#define HTTP_HDR_GZIP           HTTP_CONTENT_TYPE("application/gzip")
 #define HTTP_HDR_SVGZ           HTTP_CONTENT_TYPE_ENCODING("image/svg+xml", "gzip")
 
 #define HTTP_HDR_DEFAULT_TYPE   HTTP_CONTENT_TYPE("text/plain")
@@ -148,9 +155,8 @@ typedef struct {
 /** A list of extension-to-HTTP header strings (see outdated RFC 1700 MEDIA TYPES
  * and http://www.iana.org/assignments/media-types for registered content types
  * and subtypes) */
-static const tHTTPHeader g_psHTTPHeaders[] = {
+PROGMEM static const http_header_t httpd_headers[] = {
   { "html", HTTP_HDR_HTML},
-  { "html.gz", HTTP_HDR_HTML_GZ},
   { "json", HTTP_HDR_JSON},
   { "htm",  HTTP_HDR_HTML},
   { "gif",  HTTP_HDR_GIF},
@@ -176,7 +182,7 @@ static const tHTTPHeader g_psHTTPHeaders[] = {
 #endif
 };
 
-#define NUM_HTTP_HEADERS LWIP_ARRAYSIZE(g_psHTTPHeaders)
+#define NUM_HTTP_HEADERS LWIP_ARRAYSIZE(httpd_headers)
 
 #endif /* LWIP_HTTPD_DYNAMIC_HEADERS */
 
@@ -330,12 +336,13 @@ void dbg (char *msg, ...)
 typedef struct {
   const char *name;
   u8_t shtml;
+  http_encoding_t encoding;
 } default_filename;
 
-static const default_filename httpd_default_filenames[] = {
-    {"/index.html",    0 },
-    {"/index.html.gz", 0 },
-    {"/index.htm",     0 }
+PROGMEM static const default_filename httpd_default_filenames[] = {
+    {"/index.html",    0, HTTPEncoding_None },
+    {"/index.html.gz", 0, HTTPEncoding_GZIP },
+    {"/index.htm",     0, HTTPEncoding_None }
 };
 
 http_event_t httpd = {0};
@@ -890,13 +897,13 @@ static void set_content_type (http_state_t *hs, const char *uri)
         if (!(end = strchr(uri, '?')))
             end = strchr(uri, '\0');
 
-        ext_found = (ext = strchr(uri, '.')) && ext < end;
+        ext_found = (ext = strrchr(uri, '.')) && ext < end;
 
         if(end != uri) {
             for (content_type = 0; content_type < NUM_HTTP_HEADERS; content_type++) {
-                size_t len = strlen(g_psHTTPHeaders[content_type].extension);
+                size_t len = strlen(httpd_headers[content_type].extension);
                 ext = end - len;
-                if(ext > uri && *(ext - 1) == '.'  && !lwip_strnicmp(g_psHTTPHeaders[content_type].extension, ext, len))
+                if(ext > uri && *(ext - 1) == '.'  && !lwip_strnicmp(httpd_headers[content_type].extension, ext, len))
                     break;
             }
         }
@@ -904,7 +911,7 @@ static void set_content_type (http_state_t *hs, const char *uri)
         /* Did we find a matching extension? */
         if (content_type < NUM_HTTP_HEADERS) {
             /* yes, store it */
-            hs->response_hdr.string[hs->response_hdr.next++] = g_psHTTPHeaders[content_type].content_type;
+            hs->response_hdr.string[hs->response_hdr.next++] = httpd_headers[content_type].content_type;
         } else if (!ext_found) {
             /* no, no extension found -> use binary transfer to prevent the browser adding '.txt' on save */
             hs->response_hdr.string[hs->response_hdr.next++] = HTTP_HDR_APP;
@@ -915,6 +922,9 @@ static void set_content_type (http_state_t *hs, const char *uri)
             else /* No - use the default, plain text file type. */
                 hs->response_hdr.string[hs->response_hdr.next++] = HTTP_HDR_DEFAULT_TYPE;
         }
+
+        if(hs->request.encoding)
+            hs->response_hdr.string[hs->response_hdr.next++] = httpd_encodings[hs->request.encoding - 1];
     }
 }
 
@@ -1812,13 +1822,14 @@ static err_t http_process_request (http_state_t *hs, const char *uri)
                         LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("Looking for %s...\n", file_name));
                         if ((file = vfs_open(file_name, "r")) != NULL) {
                             uri = file_name;
+                            hs->request.encoding = httpd_default_filenames[loop].encoding;
                             LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("Opened.\n"));
                             break;
                         }
                     }
                 }
 
-                if(file == NULL && !is_dir) {
+                if(file == NULL && uri_handler == NULL && !is_dir) {
                     if((file = vfs_open(uri, "r")) == NULL && httpd.on_open_file_failed)
                         uri = httpd.on_open_file_failed(&hs->request, uri, &file, "r");
                 }
