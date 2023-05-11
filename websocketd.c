@@ -1,12 +1,12 @@
 //
 // websocketd.c - lwIP websocket daemon implementation
 //
-// v2.5 / 2022-09-15 / Io Engineering / Terje
+// v2.5 / 2023-05-08 / Io Engineering / Terje
 //
 
 /*
 
-Copyright (c) 2019-2022, Terje Io
+Copyright (c) 2019-2023, Terje Io
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -328,7 +328,7 @@ static void streamWrite (const char *data, uint16_t length)
         streamPutC(*ptr++);
 }
 
-static uint16_t streamRxCancel (void) {
+static uint16_t streamTxCount (void) {
 
     uint_fast16_t head = streambuffers.txbuf.head, tail = streambuffers.txbuf.tail;
 
@@ -1229,7 +1229,7 @@ static void websocket_stream_handler (ws_sessiondata_t *session)
     }
 
     // 2. Process output stream
-    if((len = streamRxCancel()) && tcp_sndbuf(session->pcb) > 4) {
+    if((len = streamTxCount()) && tcp_sndbuf(session->pcb) > 4) {
 
         int16_t c;
         uint_fast16_t idx = 0;

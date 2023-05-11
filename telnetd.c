@@ -1,12 +1,12 @@
 //
 // telnetd.c - lwIP "raw" telnet daemon
 //
-// v2.1 / 2022-02-03 / Io Engineering / Terje
+// v2.1 / 2023-05-08 / Io Engineering / Terje
 //
 
 /*
 
-Copyright (c) 2018-2022, Terje Io
+Copyright (c) 2018-2023, Terje Io
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -208,7 +208,7 @@ static void streamWrite (const char *data, uint16_t length)
         streamPutC(*ptr++);
 }
 
-static uint16_t streamTxCount(void) {
+static uint16_t streamTxCount (void) {
 
     uint_fast16_t head = streamSession.txbuf.head, tail = streamSession.txbuf.tail;
 
@@ -488,7 +488,7 @@ void telnet_stream_handler (sessiondata_t *session)
         }
 
         if(taken)
-            tcp_recved(streamSession.pcb, taken);
+            tcp_recved(session->pcb, taken);
 
         if(q == NULL) {
             pbuf_free(session->packet.p);
