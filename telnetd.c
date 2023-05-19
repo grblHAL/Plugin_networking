@@ -1,7 +1,7 @@
 //
 // telnetd.c - lwIP "raw" telnet daemon
 //
-// v2.1 / 2023-05-08 / Io Engineering / Terje
+// v2.2 / 2023-05-17 / Io Engineering / Terje
 //
 
 /*
@@ -393,11 +393,16 @@ static err_t telnet_sent (void *arg, struct tcp_pcb *pcb, u16_t ui16len)
     return ERR_OK;
 }
 
+static bool is_connected (void)
+{
+    return true;
+}
+
 static err_t telnet_accept (void *arg, struct tcp_pcb *pcb, err_t err)
 {
     static const io_stream_t telnet_stream = {
         .type = StreamType_Telnet,
-        .state.connected = true,
+        .is_connected = is_connected,
         .read = streamGetC,
         .write = streamWriteS,
         .write_n = streamWrite,
@@ -445,9 +450,7 @@ static err_t telnet_accept (void *arg, struct tcp_pcb *pcb, err_t err)
     tcp_arg(pcb, &streamSession);
 
     // Switch I/O stream to Telnet connection
-    if(hal.stream_select)
-        hal.stream_select(&telnet_stream);
-    else if(stream_connect(&telnet_stream))
+    if(stream_connect(&telnet_stream))
         session->stream = &telnet_stream;
     // else abort connection?
 

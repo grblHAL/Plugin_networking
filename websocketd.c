@@ -1,7 +1,7 @@
 //
 // websocketd.c - lwIP websocket daemon implementation
 //
-// v2.5 / 2023-05-08 / Io Engineering / Terje
+// v2.6 / 2023-05-17 / Io Engineering / Terje
 //
 
 /*
@@ -214,15 +214,30 @@ static const ws_sessiondata_t defaultSettings =
     .on_bin_frame_received = NULL
 };
 
+static const io_stream_t *claim_stream (uint32_t baud_rate);
+
 static tcp_server_t ws_server;
 static ws_sessiondata_t clients[WEBUI_MAX_CLIENTS] = {0};
 static ws_streambuffers_t streambuffers = {0};
+static io_stream_properties_t ws_streams[] = {
+    {
+      .type = StreamType_WebSocket,
+      .instance = 10,
+      .flags.claimable = On,
+      .flags.claimed = Off,
+      .flags.connected = Off,
+      .flags.can_set_baud = Off,
+      .flags.modbus_ready = Off,
+      .claim = claim_stream
+    }
+};
 static enqueue_realtime_command_ptr enqueue_realtime_command = protocol_enqueue_realtime_command;
 #if ESP_PLATFORM
 static portMUX_TYPE rx_mux = portMUX_INITIALIZER_UNLOCKED;
 #endif
 
 websocket_events_t websocket;
+
 
 //
 // streamGetC - returns -1 if no data available
@@ -375,6 +390,7 @@ static void streamClose (ws_sessiondata_t *session)
         stream_disconnect(session->stream);
         session->stream = NULL;
         streambuffers.session = NULL;
+        ws_streams[0].flags.connected = false;
         streamRxFlush();
         streamTxFlush();
     }
@@ -392,6 +408,38 @@ bool websocket_register_frame_handler (websocket_t *session, websocket_on_frame_
     }
 
     return ok;
+}
+
+static bool is_connected (void)
+{
+    return ws_streams[0].flags.connected;
+}
+
+static const io_stream_t *claim_stream (uint32_t baud_rate)
+{
+    static const io_stream_t stream = {
+        .type = StreamType_WebSocket,
+        .is_connected = is_connected,
+        .read = streamGetC,
+        .write = streamWriteS,
+        .write_n = streamWrite,
+        .write_char = streamPutC,
+        .enqueue_rt_command = streamEnqueueRtCommand,
+        .get_rx_buffer_free = streamRxFree,
+        .reset_write_buffer = streamTxFlush,
+        .reset_read_buffer = streamRxFlush,
+        .cancel_read_buffer = websocketd_RxCancel,
+        .suspend_read = streamSuspendInput,
+        .set_enqueue_rt_handler = streamSetRtHandler
+    };
+
+    if(ws_streams[0].flags.claimed)
+        return NULL;
+
+    if(baud_rate != 0)
+        ws_streams[0].flags.claimed = On;
+
+    return &stream;
 }
 
 bool websocket_send_frame (websocket_t *session, const void *data, size_t size, bool is_binary)
@@ -863,41 +911,23 @@ static void http_write_error (ws_sessiondata_t *session, const char *status)
 
 bool websocket_claim_stream (websocket_t *websocket)
 {
-    static io_stream_t stream = {
-        .type = StreamType_WebSocket,
-        .state.connected = true,
-        .read = streamGetC,
-        .write = streamWriteS,
-        .write_n = streamWrite,
-        .write_char = streamPutC,
-        .enqueue_rt_command = streamEnqueueRtCommand,
-        .get_rx_buffer_free = streamRxFree,
-        .reset_write_buffer = streamTxFlush,
-        .reset_read_buffer = streamRxFlush,
-        .cancel_read_buffer = websocketd_RxCancel,
-        .suspend_read = streamSuspendInput,
-        .set_enqueue_rt_handler = streamSetRtHandler
-    };
-
+    const io_stream_t *stream;
     ws_sessiondata_t *session = (ws_sessiondata_t *)websocket;
 
-    if(session && session->magic == WEBSOCKETD_MAGIC) {
+    if(session && session->magic == WEBSOCKETD_MAGIC && (stream = claim_stream(0))) {
 
         if(hal.stream.type == StreamType_WebSocket || !session->stream_state.connected)
             return session->stream != NULL;
 
-        stream.state = session->stream_state;
-
-        if(hal.stream_select)
-            hal.stream_select((const io_stream_t *)&stream);
-        else
-            stream_connect((const io_stream_t *)&stream);
+        stream_connect(stream);
 
         if(hal.stream.type == StreamType_WebSocket || hal.stream.state.webui_connected) {
-            session->stream = &stream;
+            session->stream = stream;
             streambuffers.session = session;
             hal.stream.state = session->stream_state;
         }
+
+        ws_streams[0].flags.connected = true;
     }
 
     return hal.stream.type == StreamType_WebSocket;
@@ -1332,6 +1362,11 @@ void websocketd_stop (void)
 
 bool websocketd_init (uint16_t port)
 {
+    static io_stream_details_t streams = {
+        .n_streams = sizeof(ws_streams) / sizeof(io_stream_properties_t),
+        .streams = ws_streams,
+    };
+
     err_t err;
 
     ws_server.port = port;
@@ -1342,6 +1377,7 @@ bool websocketd_init (uint16_t port)
     if((err = tcp_bind(pcb, IP_ADDR_ANY, port)) == ERR_OK) {
         ws_server.pcb = tcp_listen(pcb);
         tcp_accept(ws_server.pcb, websocketd_accept);
+        stream_register_streams(&streams);
     }
 
     return err == ERR_OK;

@@ -36,6 +36,7 @@ __NOTE:__ The API is work in progress and calls and call signatures may change.
 | [STM32H7xx](https://github.com/dresco/STM32H7xx)                  | ?          | TBA                  | TBA      |
 | [MSP432E401Y](https://github.com/grblHAL/MSP432E401Y)             | 2.0.2      | littlefs<sup>1</sup> | no       |
 
+2023-05-19: Some driver/board combinations will soon get support for WizNet W5100S and W5500 ethernet modules via SPI interface.
 
 #### Dependencies:
 
@@ -81,4 +82,4 @@ __NOTE:__ this plugin is only for the protocol layer. Driver specific code is re
 ![Test](media/websocket.png)
 
 ---
-2023-02-13
+2023-05-19
