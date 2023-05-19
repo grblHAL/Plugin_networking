@@ -12,7 +12,9 @@
    See the License for the specific language governing permissions and
    limitations under the License.
 */
-#if defined(__thumb2__)
+#include "driver.h"
+
+#if _WIZCHIP_ && defined(__thumb2__)
 
 
 /* This is a hand written Thumb-2 assembly language version of the

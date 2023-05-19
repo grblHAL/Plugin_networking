@@ -44,6 +44,7 @@
 #include "w5x00_ll_driver.h"
 
 #include "grbl/report.h"
+#include "grbl/protocol.h"
 #include "grbl/nvs_buffer.h"
 
 #include "networking/networking.h"
@@ -101,6 +102,11 @@ static void report_options (bool newopt)
             hal.stream.write(",SSDP");
 #endif
     } else {
+
+        hal.stream.write("[WIZCHIP:");
+        hal.stream.write(_WIZCHIP_ID_);
+        hal.stream.write("]" ASCII_EOL);
+
         hal.stream.write("[IP:");
         hal.stream.write(IPAddress);
         hal.stream.write("]" ASCII_EOL);
@@ -354,6 +360,11 @@ static void irq_handler (void)
     enet_event = true;
 }
 
+static void enet_startup_fail (uint_fast16_t state)
+{
+    report_message("Failed to start ethernet stack!", Message_Warning);
+}
+
 bool enet_start (void)
 {
     static struct netif ethif;
@@ -426,8 +437,10 @@ bool enet_start (void)
 //                netif_default->flags |= NETIF_FLAG_IGMP;
 
 #endif
-        } else
+        } else {
+            protocol_enqueue_rt_command(enet_startup_fail);
             return false;
+        }
     }
 
     return nvs_address != 0;
