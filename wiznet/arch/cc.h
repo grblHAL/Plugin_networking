@@ -105,8 +105,13 @@ typedef int sys_prot_t;
     //#define LWIP_CHKSUM_ALGORITHM   1
 #endif
 
+#if defined(RP2040) && !defined(LWIP_RAND)
+#include "pico/rand.h"
+// Use the pico_rand library which goes to reasonable lengths to try to provide good entropy
+#define LWIP_RAND() get_rand_32()
+#endif
 
-#ifdef LWIP_DEBUG
+#ifdef xLWIP_DEBUG
 
 #include "stdio.h"
 

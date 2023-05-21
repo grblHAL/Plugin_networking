@@ -373,12 +373,6 @@ bool enet_start (void)
 
         *IPAddress = '\0';
 
-        on_execute_realtime = grbl.on_execute_realtime;
-        grbl.on_execute_realtime = enet_poll_rt;
-
-        on_execute_delay = grbl.on_execute_delay;
-        grbl.on_execute_delay = enet_poll_delay;
-
         memcpy(&network, &ethernet, sizeof(network_settings_t));
 
         if(network.telnet_port == 0)
@@ -424,6 +418,12 @@ bool enet_start (void)
             netif_set_up(netif_default);
 
             wizchip_gpio_interrupt_initialize(SOCKET_MACRAW, irq_handler);
+
+            on_execute_realtime = grbl.on_execute_realtime;
+            grbl.on_execute_realtime = enet_poll_rt;
+
+            on_execute_delay = grbl.on_execute_delay;
+            grbl.on_execute_delay = enet_poll_delay;
 
 #if LWIP_NETIF_HOSTNAME
             netif_set_hostname(netif_default, network.hostname);

@@ -69,8 +69,8 @@
 
 #define LWIP_RAND_WIZ() ((u32_t)rand())
 
-#if 1
-//#define LWIP_DEBUG 0
+#if 0
+#define LWIP_DEBUG
 #define TCP_DEBUG LWIP_DBG_OFF
 #define ETHARP_DEBUG LWIP_DBG_OFF
 #define PBUF_DEBUG LWIP_DBG_OFF

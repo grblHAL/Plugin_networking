@@ -1,6 +1,6 @@
 #include "driver.h"
 
-#ifdef _WIZCHIP_
+#if defined(_WIZCHIP_) && !defined(RP2040)
 
 #include "grbl/hal.h"
 
