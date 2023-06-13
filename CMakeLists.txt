@@ -21,6 +21,7 @@ target_sources(networking INTERFACE
  ${CMAKE_CURRENT_LIST_DIR}/websocketd.c
  ${CMAKE_CURRENT_LIST_DIR}/ssdp.c
  ${CMAKE_CURRENT_LIST_DIR}/mqtt.c
+ ${CMAKE_CURRENT_LIST_DIR}/modbus/client.c
  )
 
 target_include_directories(networking INTERFACE ${CMAKE_CURRENT_LIST_DIR})

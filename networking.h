@@ -93,9 +93,14 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #if WEBDAV_ENABLE
 #include "webdav.h"
 #endif
+
 #if SSDP_ENABLE
 #include "networking/ssdp.h"
 #endif
+#endif
+
+#if MODBUS_ENABLE & MODBUS_TCP_ENABLED
+#include "modbus/client.h"
 #endif
 
 //*****************************************************************************

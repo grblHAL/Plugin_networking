@@ -267,6 +267,10 @@ static void netif_status_callback (struct netif *netif)
     if(!mqtt_connected)
         mqtt_connect(&network.mqtt, networking_get_info()->mqtt_client_id);
 #endif
+
+#if MODBUS_ENABLE & MODBUS_TCP_ENABLED
+    modbus_tcp_client_start();
+#endif
 }
 
 static void enet_poll (sys_state_t state)
@@ -335,6 +339,9 @@ static void enet_poll (sys_state_t state)
 #if WEBSOCKET_ENABLE
         if(services.websocket)
             websocketd_poll();
+#endif
+#if MODBUS_ENABLE & MODBUS_TCP_ENABLED
+        modbus_tcp_client_poll();
 #endif
     }
 
@@ -696,7 +703,12 @@ bool enet_init (network_settings_t *settings)
         on_client_connected = mqtt_events.on_client_connected;
         mqtt_events.on_client_connected = mqtt_connection_changed;
 #endif
+
         settings_register(&setting_details);
+
+#if MODBUS_ENABLE & MODBUS_TCP_ENABLED
+        modbus_tcp_client_init();
+#endif
 
         allowed_services.mask = networking_get_services_list((char *)netservices).mask;
     }
