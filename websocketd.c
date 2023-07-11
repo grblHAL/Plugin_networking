@@ -1,7 +1,7 @@
 //
 // websocketd.c - lwIP websocket daemon implementation
 //
-// v2.6 / 2023-05-17 / Io Engineering / Terje
+// v2.7 / 2023-07-09 / Io Engineering / Terje
 //
 
 /*
@@ -286,7 +286,7 @@ static bool streamSuspendInput (bool suspend)
 
 bool websocketd_RxPutC (char c)
 {
-    bool ok;
+    bool ok, overflow = false;
 
     // discard input if MPG has taken over...
     if((ok = streambuffers.session && streambuffers.session->state == WsState_Connected && hal.stream.type != StreamType_MPG)) {
@@ -297,7 +297,7 @@ bool websocketd_RxPutC (char c)
 #endif
         if(!enqueue_realtime_command(c)) {                          // If not a real time command attempt to buffer it
             uint_fast16_t next_head = BUFNEXT(streambuffers.rxbuf.head, streambuffers.rxbuf);
-            if(next_head == streambuffers.rxbuf.tail)               // If buffer full
+            if((overflow = next_head == streambuffers.rxbuf.tail))  // If buffer full
                 streambuffers.rxbuf.overflow = true;                // flag overflow
             streambuffers.rxbuf.data[streambuffers.rxbuf.head] = c; // add data to buffer
             streambuffers.rxbuf.head = next_head;                   // and update pointer
@@ -309,7 +309,7 @@ bool websocketd_RxPutC (char c)
 #endif
     }
 
-    return ok && !streambuffers.rxbuf.overflow;
+    return ok && !overflow;
 }
 
 static bool streamPutC (const char c)

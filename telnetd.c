@@ -1,7 +1,7 @@
 //
 // telnetd.c - lwIP "raw" telnet daemon
 //
-// v2.2 / 2023-05-17 / Io Engineering / Terje
+// v2.3 / 2023-07-09 / Io Engineering / Terje
 //
 
 /*
@@ -149,7 +149,7 @@ static bool streamSuspendInput (bool suspend)
 
 static bool streamRxPutC (char c)
 {
-    bool mpg;
+    bool mpg, overflow = false;
 
     // discard input if MPG has taken over...
     if(!(mpg = hal.stream.type == StreamType_MPG)) {
@@ -160,7 +160,7 @@ static bool streamRxPutC (char c)
 #endif
         if(!enqueue_realtime_command(c)) {                              // If not a real time command attempt to buffer it
             uint_fast16_t next_head = BUFNEXT(streamSession.rxbuf.head, streamSession.rxbuf);
-            if(next_head == streamSession.rxbuf.tail)                   // If buffer full
+            if((overflow = next_head == streamSession.rxbuf.tail))      // If buffer full
                 streamSession.rxbuf.overflow = true;                    // flag overflow
             else {
                 streamSession.rxbuf.data[streamSession.rxbuf.head] = c; // Add data to buffer and
@@ -174,7 +174,7 @@ static bool streamRxPutC (char c)
 #endif
     }
 
-    return mpg || !streamSession.rxbuf.overflow;
+    return mpg || !overflow;
 }
 
 static bool streamPutC (const char c)
