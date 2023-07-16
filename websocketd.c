@@ -247,7 +247,7 @@ static int16_t streamGetC (void)
     int16_t data;
 
     if(streambuffers.rxbuf.tail == streambuffers.rxbuf.head)
-        return -1; // no data available else EOF
+        return SERIAL_NO_DATA; // no data available else EOF
 
     data = streambuffers.rxbuf.data[streambuffers.rxbuf.tail];                          // Get next character
     streambuffers.rxbuf.tail = BUFNEXT(streambuffers.rxbuf.tail, streambuffers.rxbuf);  // and update pointer
@@ -355,7 +355,7 @@ static int16_t streamTxGetC (void)
     int16_t data;
 
     if(streambuffers.txbuf.tail == streambuffers.txbuf.head)
-        return -1; // no data available else EOF
+        return SERIAL_NO_DATA; // no data available else EOF
 
     data = streambuffers.txbuf.data[streambuffers.txbuf.tail];                          // Get next character
     streambuffers.txbuf.tail = BUFNEXT(streambuffers.txbuf.tail, streambuffers.txbuf);  // and update pointer
@@ -1275,7 +1275,7 @@ static void websocket_stream_handler (ws_sessiondata_t *session)
         }
 
         while(len) {
-            if((c = (uint8_t)streamTxGetC()) == -1)
+            if((c = (uint8_t)streamTxGetC()) == SERIAL_NO_DATA)
                 break;
             txbuf[idx++] = (uint8_t)c;
             len--;

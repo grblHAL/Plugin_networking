@@ -110,7 +110,7 @@ static int16_t streamGetC (void)
     int16_t data;
 
     if(streamSession.rxbuf.tail == streamSession.rxbuf.head)
-        return -1; // no data available else EOF
+        return SERIAL_NO_DATA; // no data available else EOF
 
     data = streamSession.rxbuf.data[streamSession.rxbuf.tail];                          // Get next character
     streamSession.rxbuf.tail = BUFNEXT(streamSession.rxbuf.tail, streamSession.rxbuf);  // and update pointer
@@ -220,7 +220,7 @@ static int16_t streamTxGetC (void)
     int16_t data;
 
     if(streamSession.txbuf.tail == streamSession.txbuf.head)
-        return -1; // no data available else EOF
+        return SERIAL_NO_DATA; // no data available else EOF
 
     data = streamSession.txbuf.data[streamSession.txbuf.tail];                          // Get next character
     streamSession.txbuf.tail = BUFNEXT(streamSession.txbuf.tail, streamSession.txbuf);  // and update pointer
@@ -459,6 +459,7 @@ static err_t telnet_accept (void *arg, struct tcp_pcb *pcb, err_t err)
 
 void telnet_stream_handler (sessiondata_t *session)
 {
+    static uint_fast16_t tx_len = 0;
     static uint8_t txbuf[TX_BUFFER_SIZE];
 
     uint_fast16_t len;
@@ -467,6 +468,7 @@ void telnet_stream_handler (sessiondata_t *session)
         return;
 
     // 1. Process pending input packet
+
     if(session->packet.p) {
 
         struct pbuf *q = session->packet.q;
@@ -503,28 +505,38 @@ void telnet_stream_handler (sessiondata_t *session)
         }
     }
 
-    if((len = streamTxCount()) == 0 || tcp_sndbuf(session->pcb) < 4)
-        return;
-
     // 2. Process output stream
 
-    uint_fast16_t max_len, tx_len;
+    if(tx_len == 0 && (len = streamTxCount())) {
 
-    if((max_len = tcp_sndbuf(session->pcb))) {
+        int16_t c;
 
-        uint8_t *buf = txbuf;
+        while(len) {
+            if((c = (uint8_t)streamTxGetC()) == SERIAL_NO_DATA)
+                break;
+            txbuf[tx_len++] = (uint8_t)c;
+            len--;
+        }
+    }
 
-        if(len > max_len)
-            len = max_len;
+    if(tx_len) {
 
-        tx_len = len;
+        err_t err;
+
+        len = tx_len;
 
         do {
-            *buf++ = (uint8_t)streamTxGetC();
-        } while(--len);
+            if((err = tcp_write(session->pcb, txbuf, (u16_t)len, TCP_WRITE_FLAG_COPY)) == ERR_MEM)
+                len = tcp_sndqueuelen(session->pcb) >= TCP_SND_QUEUELEN ? 1 : len / 2;
+        } while(err == ERR_MEM && len > 1);
 
-        tcp_write(session->pcb, txbuf, (u16_t)tx_len, TCP_WRITE_FLAG_COPY);
-        tcp_output(session->pcb);
+        if(err == ERR_OK) {
+            if(tx_len != len)
+                memmove(txbuf, &txbuf[len + 1], tx_len - len);
+            tx_len -= len;
+            tcp_output(session->pcb);
+            session->lastSendTime = xTaskGetTickCount();
+        }
     }
 }
 
