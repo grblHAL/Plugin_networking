@@ -543,7 +543,7 @@ static const setting_group_detail_t modbus_groups [] = {
 static const setting_detail_t modbus_settings[] = {
     { Setting_ModbusIpAddressBase, Group_ModBusUnit0, "Unit ? IP address", NULL, Format_IPv4, NULL, NULL, NULL, Setting_NonCoreFn, modbus_set_ip, modbus_get_ip, NULL, MSET_OPTS },
     { Setting_ModbusPortBase, Group_ModBusUnit0, "Unit ? port", NULL, Format_Int16, "####0", "1", "65535", Setting_NonCoreFn, modbus_set_setting, modbus_get_setting, NULL, MSET_OPTS },
-    { Setting_ModbusIdBase, Group_ModBusUnit0, "Unit ? ID", NULL, Format_Int16, "##0", "1", "255", Setting_NonCoreFn, modbus_set_setting, modbus_get_setting, NULL, MSET_OPTS }
+    { Setting_ModbusIdBase, Group_ModBusUnit0, "Unit ? ID", NULL, Format_Int16, "##0", "0", "255", Setting_NonCoreFn, modbus_set_setting, modbus_get_setting, NULL, MSET_OPTS }
 };
 
 #ifndef NO_SETTINGS_DESCRIPTIONS
