@@ -277,7 +277,10 @@ static void enet_poll (sys_state_t state)
 {
     static bool lock = false;
     static uint32_t last_ms0, last_link_check;
-    static uint8_t packet[ETHERNET_MTU];
+    static struct {
+        uint16_t len;
+        uint8_t data[ETHERNET_MTU + 100];
+    } packet = {0};
 
     if(lock)
         return;
@@ -291,36 +294,46 @@ static void enet_poll (sys_state_t state)
 //        ethernet_link_check_state(netif_default);
     }
 
-    if(enet_event) {
+    if(enet_event || packet.len) {
 
-        sockint_kind irq;
+        sockint_kind irq = 0;
 
         enet_event = false;
 
-        if(ctlsocket(SOCKET_MACRAW, CS_GET_INTERRUPT, &irq) == SOCK_OK) {
+        if(packet.len || ctlsocket(SOCKET_MACRAW, CS_GET_INTERRUPT, &irq) == SOCK_OK) {
 
-            if(irq & SIK_RECEIVED) {
+            if(packet.len || (irq & SIK_RECEIVED)) {
 
-                uint16_t packet_len;
                 struct pbuf *p = NULL;
 
-                while((packet_len = recv_lwip(SOCKET_MACRAW, packet, sizeof(packet)))) {
+                while(true) {
 
-                    if((p = pbuf_alloc(PBUF_RAW, packet_len, PBUF_POOL))) {
+                    if(packet.len == 0)
+                        packet.len = recv_lwip(SOCKET_MACRAW, packet.data, sizeof(packet.data));
 
-                        pbuf_take(p, packet, packet_len);
+                    if(packet.len) {
 
-                        LINK_STATS_INC(link.recv);
+                        if((p = pbuf_alloc(PBUF_RAW, packet.len, PBUF_POOL))) {
 
-                        if(netif_default->input(p, netif_default) != ERR_OK)
-                            pbuf_free(p);
-                    }
+                            pbuf_take(p, packet.data, packet.len);
+                            packet.len = 0;
+
+                            LINK_STATS_INC(link.recv);
+
+                            if(netif_default->input(p, netif_default) != ERR_OK)
+                                pbuf_free(p);
+
+                        } else 
+                            break;
+                    } else
+                        break;
                 }
             }
 
-            irq &= SIK_RECEIVED;
-
-            ctlsocket(SOCKET_MACRAW, CS_CLR_INTERRUPT, &irq);
+            if(irq & SIK_RECEIVED) {
+                irq &= SIK_RECEIVED;    
+                ctlsocket(SOCKET_MACRAW, CS_CLR_INTERRUPT, &irq);
+            }
         }
     }
 
