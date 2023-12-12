@@ -230,8 +230,6 @@ static void fs_reset (void)
 void fs_ram_mount (void)
 {
     static const vfs_t fs = {
-        .mode.directory = true,
-        .mode.hidden = true,
         .fopen = fs_open,
         .fclose = fs_close,
         .fread = fs_read,
@@ -250,6 +248,6 @@ void fs_ram_mount (void)
     if(driver_reset == NULL) {
         driver_reset = hal.driver_reset;
         hal.driver_reset = fs_reset;
-        vfs_mount("/ram", &fs);
+        vfs_mount("/ram", &fs, (vfs_st_mode_t){ .directory = true, .hidden = true });
     }
 }
