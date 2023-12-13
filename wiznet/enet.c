@@ -302,6 +302,11 @@ static void enet_poll (sys_state_t state)
 
         if(packet.len || ctlsocket(SOCKET_MACRAW, CS_GET_INTERRUPT, &irq) == SOCK_OK) {
 
+            if(irq & SIK_RECEIVED) {
+                irq &= SIK_RECEIVED;    
+                ctlsocket(SOCKET_MACRAW, CS_CLR_INTERRUPT, &irq);
+            }
+
             if(packet.len || (irq & SIK_RECEIVED)) {
 
                 struct pbuf *p = NULL;
@@ -328,11 +333,6 @@ static void enet_poll (sys_state_t state)
                     } else
                         break;
                 }
-            }
-
-            if(irq & SIK_RECEIVED) {
-                irq &= SIK_RECEIVED;    
-                ctlsocket(SOCKET_MACRAW, CS_CLR_INTERRUPT, &irq);
             }
         }
     }
