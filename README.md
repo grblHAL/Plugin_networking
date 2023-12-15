@@ -21,7 +21,7 @@ Various amount of manual code changes are needed to make them work, see the [RP2
 
 * MQTT - \(MQ Telemetry Transport\). A programming API is provided for plugin code, not used by standard code.
 
-MQTT requires lwIP 2.1.x for authentication support \(username & password\). [Template/example](https://github.com/grblHAL/Templates/tree/master/my_plugin/MQTT%20example) code is available.
+MQTT requires lwIP 2.1.x for authentication support \(username & password\). [Template/example](https://github.com/grblHAL/Templates/tree/master/my_plugin/MQTT_example) code is available.
 
 __NOTE:__ The API is work in progress and calls and call signatures may change.
 
