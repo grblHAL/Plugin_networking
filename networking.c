@@ -1,7 +1,7 @@
 //
 // networking.c - some shared networking code
 //
-// v1.7 / 2023-02-12 / Io Engineering / Terje
+// v1.7 / 2023-12-25 / Io Engineering / Terje
 //
 
 /*
@@ -40,6 +40,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #if ETHERNET_ENABLE || WIFI_ENABLE
 
+#include <stdio.h>
 #include <string.h>
 
 // NOTE: increase #define NETWORK_SERVICES_LEN in networking.h when adding to this array!
@@ -113,6 +114,18 @@ bool networking_ismemnull (void *data, size_t len)
     } while(--len);
 
     return true;
+}
+
+char *networking_mac_to_string (uint8_t *mac)
+{
+    static char s[18];
+
+    if(networking_ismemnull(mac, 6))
+        *s = '\0';
+    else
+        sprintf(s, MAC_FORMAT_STRING, mac[5], mac[4], mac[3], mac[2], mac[1], mac[0]);
+
+    return s;
 }
 
 #if MQTT_ENABLE
