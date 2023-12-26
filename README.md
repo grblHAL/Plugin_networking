@@ -1,8 +1,6 @@
 ## Networking services plugin
 
-This plugin contains code for "stream based" network protocol support on top of the lwIP TCP/IP stack plus some utilities.
-
-"stream based" in this context means that the HAL entry points for streaming are used as the API \(by dynamic pointer swapping on connect\).
+This plugin contains code for network protocol support on top of the lwIP TCP/IP stack.
 
 #### Server protocols supported:
 
@@ -32,11 +30,10 @@ __NOTE:__ The API is work in progress and calls and call signatures may change.
 | [iMXRT1062 \(Teensy 4.1\)](https://github.com/grblHAL/iMXRT1062)  | 2.1.3      | littlefs             | yes      |
 | [RP2040 \(Pi Pico W\)](https://github.com/grblHAL/RP2040)         | 2.1.1      | littlefs             | yes      |
 | [ESP32](https://github.com/grblHAL/ESP32)                         | ?          | littlefs             | yes      |
+| [STM32F4xx](https://github.com/grblHAL/STM32F4xx)                 | 2.1.2      | no                   | yes      |
 | [STM32F756](https://github.com/grblHAL/STM32F7xx)                 | 2.1.2      | no                   | yes      |
 | [STM32H7xx](https://github.com/dresco/STM32H7xx)                  | ?          | TBA                  | TBA      |
 | [MSP432E401Y](https://github.com/grblHAL/MSP432E401Y)             | 2.0.2      | littlefs<sup>1</sup> | no       |
-
-2023-05-19: Some driver/board combinations will soon get support for WizNet W5100S and W5500 ethernet modules via SPI interface.
 
 #### Dependencies:
 
@@ -48,9 +45,13 @@ These drivers has this "middleware" layer, further details for how to configure 
 
 * [iMXRT1062](https://github.com/grblHAL/IMXRT1062) for Teensy 4.1, cabled Ethernet.
 
+* [STM32F4xx](https://github.com/grblHAL/STM32F7xx), cabled Ethernet via SPI \(WizNet module\).
+
 * [STM32F7xx](https://github.com/grblHAL/STM32F7xx) for Nucleo-F756ZG, cabled Ethernet.
 
-* [RP2040](https://github.com/grblHAL/RP2040) for Pi Pico W, wireless \(wifi\).
+* [STM32H7xx](https://github.com/dresco/STM32H7xx), cabled Ethernet.
+
+* [RP2040](https://github.com/grblHAL/RP2040), wireless for Pi Pico W \(wifi\) or cabled Ethernet via SPI \(WizNet module\).
 
 * [MSP432E401Y](https://github.com/grblHAL/MSP432E401Y) for MSP432E401Y LaunchPad, cabled Ethernet.
 
@@ -82,4 +83,4 @@ __NOTE:__ this plugin is only for the protocol layer. Driver specific code is re
 ![Test](media/websocket.png)
 
 ---
-2023-05-19
+2023-12-26
