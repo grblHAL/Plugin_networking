@@ -4,7 +4,7 @@
 
   Part of grblHAL
 
-  Copyright (c) 2023 Terje Io
+  Copyright (c) 2023-2024 Terje Io
 
   Grbl is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -607,11 +607,6 @@ static setting_details_t setting_details = {
     .iterator = modbus_settings_iterator
 };
 
-static void pos_failed (uint_fast16_t state)
-{
-    report_message("Modbus TCP failed to initialize!", Message_Warning);
-}
-
 static bool modbus_tcp_isup (void)
 {
     return modbus[0].id != 0; // TODO: how to handle this? Only check link is up? If any clients are defined? ...
@@ -660,7 +655,7 @@ void modbus_tcp_client_init (void)
         settings_register(&setting_details);
 
     } else {
-        protocol_enqueue_rt_command(pos_failed);
+        protocol_enqueue_foreground_task(report_warning, "Modbus TCP failed to initialize!");
         system_raise_alarm(Alarm_SelftestFailed);
     }
 }

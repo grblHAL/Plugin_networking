@@ -3,7 +3,7 @@
 
   Part of grblHAL
 
-  Copyright (c) 2023 Terje Io
+  Copyright (c) 2023-2024 Terje Io
 
   Grbl is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -383,11 +383,6 @@ static ISR_CODE void ISR_FUNC(irq_handler) (void)
     enet_event++;
 }
 
-static void enet_startup_fail (uint_fast16_t state)
-{
-    report_message("Failed to start ethernet stack!", Message_Warning);
-}
-
 bool enet_start (void)
 {
     static struct netif ethif;
@@ -463,7 +458,7 @@ bool enet_start (void)
 
 #endif
         } else {
-            protocol_enqueue_rt_command(enet_startup_fail);
+            protocol_enqueue_foreground_task(report_warning, "Failed to start ethernet stack!");
             return false;
         }
     }
