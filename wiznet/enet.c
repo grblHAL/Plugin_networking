@@ -5,18 +5,18 @@
 
   Copyright (c) 2023-2024 Terje Io
 
-  Grbl is free software: you can redistribute it and/or modify
+  grblHAL is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
   the Free Software Foundation, either version 3 of the License, or
   (at your option) any later version.
 
-  Grbl is distributed in the hope that it will be useful,
+  grblHAL is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
   GNU General Public License for more details.
 
   You should have received a copy of the GNU General Public License
-  along with Grbl.  If not, see <http://www.gnu.org/licenses/>.
+  along with grblHAL. If not, see <http://www.gnu.org/licenses/>.
 */
 
 #include "driver.h"
@@ -55,14 +55,12 @@
 extern uint8_t mac[6];
 
 static volatile bool linkUp = false;
-static volatile uint32_t enet_event = 0;
 static char IPAddress[IP4ADDR_STRLEN_MAX];
 static stream_type_t active_stream = StreamType_Null;
 static network_services_t services = {0}, allowed_services;
 static nvs_address_t nvs_address;
 static network_settings_t ethernet, network;
 static on_report_options_ptr on_report_options;
-static on_execute_realtime_ptr on_execute_realtime, on_execute_delay;
 static on_stream_changed_ptr on_stream_changed;
 static char netservices[NETWORK_SERVICES_LEN] = "";
 #if MQTT_ENABLE
@@ -279,10 +277,42 @@ static void netif_status_callback (struct netif *netif)
 #endif
 }
 
-static void enet_poll (sys_state_t state)
+/*
+static void link_check (void *data)
+{
+    task_add_delayed(link_check, NULL, 100);
+}
+*/
+
+static void enet_poll (void *data)
+{
+    static uint32_t ms = 0;
+
+    sys_check_timeouts();
+
+    if(linkUp && ++ms == 3) {
+        ms = 0;
+#if TELNET_ENABLE
+        if(services.telnet)
+            telnetd_poll();
+#endif
+#if FTP_ENABLE
+        if(services.ftp)
+            ftpd_poll();
+#endif
+#if WEBSOCKET_ENABLE
+        if(services.websocket)
+            websocketd_poll();
+#endif
+#if MODBUS_ENABLE & MODBUS_TCP_ENABLED
+        modbus_tcp_client_poll();
+#endif
+    }
+}
+
+static void enet_process (void *data)
 {
     static bool lock = false;
-    static uint32_t last_ms0, last_link_check;
     static struct {
         uint16_t len;
         uint8_t data[ETHERNET_MTU + 100];
@@ -292,19 +322,9 @@ static void enet_poll (sys_state_t state)
         return;
 
     lock = true;
-
     sockint_kind irq = 0;
-    uint32_t ms = hal.get_elapsed_ticks();
 
-    if(ms - last_link_check >= 100) {
-        last_link_check = ms;
-//        ethernet_link_check_state(netif_default);
-    }
-
-    if((enet_event && ctlsocket(SOCKET_MACRAW, CS_GET_INTERRUPT, &irq) == SOCK_OK) || packet.len) {
-
-        if(enet_event)
-            enet_event--;
+    if((ctlsocket(SOCKET_MACRAW, CS_GET_INTERRUPT, &irq) == SOCK_OK) || packet.len) {
 
         if(packet.len || (irq & SIK_RECEIVED)) {
 
@@ -334,53 +354,24 @@ static void enet_poll (sys_state_t state)
             }
         }
 
+        if(packet.len) {
+            task_delete(enet_process, NULL);
+            task_add_delayed(enet_process, NULL, 1);
+        }
+
         if(irq & SIK_RECEIVED) {
             irq &= SIK_RECEIVED;
             ctlsocket(SOCKET_MACRAW, CS_CLR_INTERRUPT, &irq);
         }
     }
 
-    sys_check_timeouts();
-
-    if(linkUp && ms - last_ms0 > 3) {
-        last_ms0 = ms;
-#if TELNET_ENABLE
-        if(services.telnet)
-            telnetd_poll();
-#endif
-#if FTP_ENABLE
-        if(services.ftp)
-            ftpd_poll();
-#endif
-#if WEBSOCKET_ENABLE
-        if(services.websocket)
-            websocketd_poll();
-#endif
-#if MODBUS_ENABLE & MODBUS_TCP_ENABLED
-        modbus_tcp_client_poll();
-#endif
-    }
-
     lock = false;
 }
 
-static void enet_poll_rt (sys_state_t state)
+static ISR_CODE void ISR_FUNC(irq_handler)(void)
 {
-    on_execute_realtime(state);
-
-    enet_poll(state);
-}
-
-static void enet_poll_delay (sys_state_t state)
-{
-    on_execute_delay(state);
-
-    enet_poll(state);
-}
-
-static ISR_CODE void ISR_FUNC(irq_handler) (void)
-{
-    enet_event++;
+    if(!task_add_immediate(enet_process, NULL))
+        task_add_delayed(enet_process, NULL, 0);
 }
 
 bool enet_start (void)
@@ -439,12 +430,6 @@ bool enet_start (void)
 
             wizchip_gpio_interrupt_initialize(SOCKET_MACRAW, irq_handler);
 
-            on_execute_realtime = grbl.on_execute_realtime;
-            grbl.on_execute_realtime = enet_poll_rt;
-
-            on_execute_delay = grbl.on_execute_delay;
-            grbl.on_execute_delay = enet_poll_delay;
-
 #if LWIP_NETIF_HOSTNAME
             netif_set_hostname(netif_default, network.hostname);
 #endif
@@ -457,6 +442,8 @@ bool enet_start (void)
 //                netif_default->flags |= NETIF_FLAG_IGMP;
 
 #endif
+            task_add_systick(enet_poll, NULL);
+
         } else {
             protocol_enqueue_foreground_task(report_warning, "Failed to start ethernet stack!");
             return false;
