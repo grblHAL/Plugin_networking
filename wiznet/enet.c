@@ -445,6 +445,7 @@ bool enet_start (void)
             task_add_systick(enet_poll, NULL);
 
         } else {
+            strcpy(IPAddress, "N/A");
             protocol_enqueue_foreground_task(report_warning, "Failed to start ethernet stack!");
             return false;
         }
