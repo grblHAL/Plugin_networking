@@ -743,7 +743,7 @@ static uint32_t websocket_msg_parse (ws_sessiondata_t *session, uint8_t *payload
                     plen -= session->header.payload_rem;
                     if(collect_msg_frame(&session->header, payload, session->header.payload_rem))
                         payload = session->header.frame;
-                    tcp_write(session->pcb, payload, session->header.payload_len, 1);
+                    tcp_write(session->pcb, payload, session->header.payload_len, TCP_WRITE_FLAG_COPY);
                     tcp_output(session->pcb);
                     session->state = WsState_Closing;
                 } else {
@@ -758,10 +758,30 @@ static uint32_t websocket_msg_parse (ws_sessiondata_t *session, uint8_t *payload
                         plen -= session->header.payload_rem;
                         if(collect_msg_frame(&session->header, payload, session->header.payload_rem))
                             payload = session->header.frame;
-                        fs.opcode = WsOpcode_Pong;
-                        payload[0] = fs.token;
-                        tcp_write(session->pcb, payload, session->header.payload_len, 1);
-                        tcp_output(session->pcb);
+
+                        uint8_t *pong;
+                        uint_fast16_t hdr_len = session->header.payload_len < 126 ? 2 : 4;
+
+                        if((pong = (uint8_t *)malloc(session->header.payload_len + hdr_len))) {
+
+                            uint_fast16_t i = session->header.rx_index, j;
+                            uint8_t *mask = (uint8_t *)&session->header.mask, *pm = payload, *buf = pong;
+
+                            fs.opcode = WsOpcode_Pong;
+                            *buf++ = fs.token;
+                            *buf++ = session->header.payload_len < 126 ? session->header.payload_len : 126;
+                            if(session->header.payload_len >= 126) {
+                                *buf++ = (session->header.payload_len >> 8) & 0xFF;
+                                *buf++ = session->header.payload_len & 0xFF;
+                            }
+
+                            for(j = 0; j < session->header.payload_len; j++)
+                                *buf++ = *pm++ ^ mask[i++ % 4];
+
+                            tcp_write(session->pcb, pong, session->header.payload_len + hdr_len, TCP_WRITE_FLAG_COPY);
+                            tcp_output(session->pcb);
+                            free(pong);
+                        }
                     }
                 } else {
                     collect_msg_frame(&session->header, payload, plen);
