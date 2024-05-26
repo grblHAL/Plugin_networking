@@ -715,7 +715,7 @@ static void stream_changed (stream_type_t type)
         on_stream_changed(type);
 }
 
-bool enet_init (network_settings_t *settings)
+bool enet_init (void)
 {
     if((nvs_address = nvs_alloc(sizeof(network_settings_t)))) {
 
