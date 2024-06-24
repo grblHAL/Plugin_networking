@@ -67,9 +67,12 @@
 
 #define LWIP_NETIF_LINK_CALLBACK 1
 #define LWIP_NETIF_STATUS_CALLBACK 1
-
+#ifndef TCP_MSS
 #define TCP_MSS (1500 /*mtu*/ - 20 /*iphdr*/ - 20 /*tcphhr*/)
+#endif
+#ifndef TCP_SND_BUF
 #define TCP_SND_BUF (4 * TCP_MSS)
+#endif
 
 #define LWIP_HTTPD_CGI 0
 #define LWIP_HTTPD_SSI 0

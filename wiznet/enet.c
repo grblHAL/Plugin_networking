@@ -102,16 +102,18 @@ static void report_options (bool newopt)
 #endif
     } else {
 
+        network_info_t *network = networking_get_info();
+
         hal.stream.write("[WIZCHIP:");
         hal.stream.write(_WIZCHIP_ID_);
         hal.stream.write("]" ASCII_EOL);
 
         hal.stream.write("[MAC:");
-        hal.stream.write(networking_mac_to_string(mac));
+        hal.stream.write(network->mac);
         hal.stream.write("]" ASCII_EOL);
 
         hal.stream.write("[IP:");
-        hal.stream.write(IPAddress);
+        hal.stream.write(network->status.ip);
         hal.stream.write("]" ASCII_EOL);
 
         if(active_stream == StreamType_Telnet || active_stream == StreamType_WebSocket) {
@@ -121,10 +123,9 @@ static void report_options (bool newopt)
         }
 
 #if MQTT_ENABLE
-        char *client_id;
-        if(*(client_id = networking_get_info()->mqtt_client_id)) {
+        if(*network->mqtt_client_id) {
             hal.stream.write("[MQTT CLIENTID:");
-            hal.stream.write(client_id);
+            hal.stream.write(network->mqtt_client_id);
             hal.stream.write(mqtt_connected ? "]" ASCII_EOL : " (offline)]" ASCII_EOL);
         }
 #endif
@@ -402,7 +403,8 @@ bool enet_start (void)
         if(wizchip_initialize() == WizChipInit_OK) {
 
             // Set ethernet chip MAC address
-            setSHAR(mac);
+            setSHAR(networking_ismemnull(network.mac, 6) ? mac : network.mac);
+
             ctlwizchip(CW_RESET_PHY, 0);
 
             lwip_init();
@@ -542,25 +544,7 @@ static uint32_t ethernet_get_services (setting_id_t id)
 
 static status_code_t ethernet_set_mac (setting_id_t setting, char *value)
 {
-    if(*value) {
-
-        uint mac[6];
-        if(sscanf(value,"%2X:%2X:%2X:%2X:%2X:%2X", &mac[5], &mac[4], &mac[3],
-                                                    &mac[2], &mac[1], &mac[0]) == 6) {
-
-            char c = LCAPS(value[strlen(value) - 1]);
-            if(!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')))
-                return Status_InvalidStatement;
-
-            uint_fast8_t idx;
-            for(idx = 0; idx < 6; idx++)
-                ethernet.mac[idx] = (uint8_t)mac[idx];
-        } else
-            return Status_InvalidStatement;
-    } else
-        memset(ethernet.mac, 0, sizeof(ethernet.mac));
-
-    return Status_OK;
+    return networking_string_to_mac(value, ethernet.mac) ? Status_OK : Status_InvalidStatement;
 }
 
 static char *ethernet_get_mac (setting_id_t setting)
@@ -655,7 +639,7 @@ void ethernet_settings_restore (void)
         set_addr(ethernet.mask, &addr);
 #endif
 
-    memset(ethernet.mac, 0, sizeof(ethernet.mac));
+    bmac_eth_get(ethernet.mac);
 
     ethernet.ftp_port = NETWORK_FTP_PORT;
     ethernet.telnet_port = NETWORK_TELNET_PORT;

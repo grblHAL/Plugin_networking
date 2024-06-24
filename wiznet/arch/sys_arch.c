@@ -2,7 +2,7 @@
 
 #include "grbl/platform.h"
 
-#if defined(_WIZCHIP_) && !(defined(RP2040) || defined(STM32_F7_PLATFORM) || defined(STM32_H7_PLATFORM))
+#if defined(_WIZCHIP_) && !(defined(RP2040) || defined(STM32_H7_PLATFORM))
 
 #include "grbl/hal.h"
 

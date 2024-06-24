@@ -1,12 +1,12 @@
 //
 // networking.h - some shared networking code
 //
-// v1.7 / 2023-12-25 / Io Engineering / Terje
+// v1.8 / 2024-06-24 / Io Engineering / Terje
 //
 
 /*
 
-Copyright (c) 2019-2023, Terje Io
+Copyright (c) 2019-2024, Terje Io
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -157,7 +157,10 @@ typedef struct
 } tcp_server_t;
 
 bool networking_ismemnull (void *data, size_t len);
-char *networking_mac_to_string (uint8_t *mac);
+char *networking_mac_to_string (uint8_t mac[6]);
+bool networking_string_to_mac (char *s, uint8_t mac[6]);
+bool bmac_eth_get (uint8_t mac[6]);
+bool bmac_wifi_get (uint8_t mac[6]);
 network_services_t networking_get_services_list (char *list);
 #if MQTT_ENABLE
 void networking_make_mqtt_clientid (const char *mac, char *client_id);

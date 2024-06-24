@@ -1,12 +1,12 @@
 //
 // networking.c - some shared networking code
 //
-// v1.7 / 2023-12-25 / Io Engineering / Terje
+// v1.8 / 2024-06-24 / Io Engineering / Terje
 //
 
 /*
 
-Copyright (c) 2021-2023, Terje Io
+Copyright (c) 2021-2024, Terje Io
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -116,16 +116,55 @@ bool networking_ismemnull (void *data, size_t len)
     return true;
 }
 
-char *networking_mac_to_string (uint8_t *mac)
+char *networking_mac_to_string (uint8_t mac[6])
 {
     static char s[18];
 
     if(networking_ismemnull(mac, 6))
         *s = '\0';
     else
-        sprintf(s, MAC_FORMAT_STRING, mac[5], mac[4], mac[3], mac[2], mac[1], mac[0]);
+        sprintf(s, MAC_FORMAT_STRING, mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 
     return s;
+}
+
+bool networking_string_to_mac (char *s, uint8_t mac[6])
+{
+    if(*s) {
+
+        uint bmac[6];
+
+        if(sscanf(s,"%2X:%2X:%2X:%2X:%2X:%2X", &bmac[0], &bmac[1], &bmac[2], &bmac[3], &bmac[4], &bmac[5]) == 6) {
+
+            char c = LCAPS(s[strlen(s) - 1]);
+            if(!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')))
+                return false;
+
+            uint_fast8_t idx;
+            for(idx = 0; idx < 6; idx++)
+                mac[idx] = (uint8_t)bmac[idx];
+        } else
+            return false;
+    } else
+        memset(mac, 0, 6);
+
+    return true;
+}
+
+// Returns default MAC address for $535 (Setting_NetworkMAC)
+
+__attribute__((weak)) bool bmac_eth_get (uint8_t mac[6])
+{
+    memset(mac, 0, 6);
+
+    return false;
+}
+
+__attribute__((weak)) bool bmac_wifi_get (uint8_t mac[6])
+{
+    memset(mac, 0, 6);
+
+    return false;
 }
 
 #if MQTT_ENABLE
