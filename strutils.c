@@ -75,6 +75,45 @@ char *stristr (const char *s1, const char *s2)
     return *p ? NULL : (char *)r;
 }
 
+/*! \brief Case insensitive search for first occurrence of a string inside another.
+\param s1 pointer to string to search.
+\param s2 pointer to string to search for.
+\param len max. number of characters to compare.
+\returns pointer to found string or NULL if not found.
+*/
+char *strnistr (const char *s1, const char *s2, size_t len)
+{
+	size_t slen = len;
+    const char *s = s1, *p = s2, *r = NULL;
+
+    if (!s2 || strlen(s2) == 0 || len == 0)
+        return (char *)s1;
+
+    while(slen && *s && *p) {
+
+        if(CAPS(*p) == CAPS(*s)) {
+            if(!r)
+                r = s;
+            p++;
+        } else {
+            p = s2;
+            slen = len;
+            if(r)
+                s = r + 1;
+            if(CAPS(*p) == CAPS(*s)) {
+                r = s;
+                p++;
+            } else
+                r = NULL;
+        }
+        s++;
+        if(r)
+        	slen--;
+    }
+
+    return slen == 0 || *p == '\0' ? (char *)r : NULL;
+}
+
 // NOTE: ensure buf is large enough to hold concatenated strings!
 char *strappend (char *buf, int argc, ...)
 {

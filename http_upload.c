@@ -39,6 +39,7 @@
 #include <sys/unistd.h>
 #endif
 
+#include "strutils.h"
 #include "http_upload.h"
 #include "multipartparser.h"
 
@@ -94,7 +95,7 @@ static void on_header_done (struct multipartparser *parser)
 
     if(*upload->header_value) {
 
-        if(!strcmp(upload->header_name, "Content-Disposition")) {
+        if(!lwip_stricmp(upload->header_name, "Content-Disposition")) {
 
             char *name;
 
@@ -112,7 +113,7 @@ static void on_header_done (struct multipartparser *parser)
             }
         }
 
-        if(*upload->filename && strstr(upload->header_name, "Content-Type")) {
+        if(*upload->filename && stristr(upload->header_name, "Content-Type")) {
 
             if(upload->on_filename_parsed)
                 upload->on_filename_parsed(upload->filename, upload->on_filename_parsed_arg);
@@ -294,4 +295,3 @@ size_t http_upload_chunk (http_request_t *req, const char* data, size_t size)
 }
 
 #endif
-

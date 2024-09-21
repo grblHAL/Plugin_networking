@@ -599,7 +599,7 @@ int http_get_header_value_len (http_request_t *request, const char *name)
     char *hdr, *end;
     http_state_t *hs = request->handle;
 
-    if ((hdr = lwip_strnstr(hs->hdr, name, hs->hdr_len))) {
+    if ((hdr = strnistr(hs->hdr, name, hs->hdr_len))) {
         hdr += strlen(name);
         if(*hdr == ':') {
             hdr++;
@@ -620,7 +620,7 @@ char *http_get_header_value (http_request_t *request, const char *name, char *va
     size_t len = strlen(name);
 
     *value = '\0';
-    if ((hdr = lwip_strnstr(hs->hdr, name, hs->hdr_len))) {
+    if ((hdr = strnistr(hs->hdr, name, hs->hdr_len))) {
         hdr += len;
         if(*hdr == ':') {
             hdr++;

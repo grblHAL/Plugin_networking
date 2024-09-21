@@ -38,6 +38,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <time.h>
 
 char *stristr(const char *s1, const char *s2);
+char *strnistr (const char *s1, const char *s2, size_t len);
 char *strappend (char *buf, int argc, ...);
 uint32_t strnumentries (const char *s, const char delimiter);
 char *strgetentry (char *res, const char *s, uint32_t entry, const char delimiter);
