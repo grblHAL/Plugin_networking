@@ -139,11 +139,20 @@ typedef struct {
     void *payload;
 } packet_chain_t;
 
+typedef union {
+    uint8_t value;
+    struct {
+        uint8_t connected       :1,
+                webui_connected :1,
+                unused          :6;
+    };
+} ws_stream_state_t;
+
 typedef struct ws_sessiondata
 {
     uint32_t magic;
     const io_stream_t *stream;
-    io_stream_state_t stream_state;
+    ws_stream_state_t stream_state;
     websocket_state_t state;
     ws_frame_start_t ftype;
     websocket_opcode_t fragment_opcode;
@@ -170,6 +179,11 @@ typedef struct {
     stream_rx_buffer_t rxbuf;
     stream_tx_buffer_t txbuf;
 } ws_streambuffers_t;
+
+typedef struct {
+    ws_stream_state_t state;
+    io_stream_properties_t prop;
+} ws_stream_t;
 
 static void websocket_stream_handler (ws_sessiondata_t *session);
 
@@ -219,16 +233,18 @@ static const io_stream_t *claim_stream (uint32_t baud_rate);
 static tcp_server_t ws_server;
 static ws_sessiondata_t clients[WEBUI_MAX_CLIENTS] = {0};
 static ws_streambuffers_t streambuffers = {0};
-static io_stream_properties_t ws_streams[] = {
+static ws_stream_t ws_streams[] = {
     {
-      .type = StreamType_WebSocket,
-      .instance = 10,
-      .flags.claimable = On,
-      .flags.claimed = Off,
-      .flags.connected = Off,
-      .flags.can_set_baud = Off,
-      .flags.modbus_ready = Off,
-      .claim = claim_stream
+        .state.connected = Off,
+        .prop = {
+            .type = StreamType_WebSocket,
+            .instance = 10,
+            .flags.claimable = On,
+            .flags.claimed = Off,
+            .flags.can_set_baud = Off,
+            .flags.modbus_ready = Off,
+            .claim = claim_stream
+        }
     }
 };
 static enqueue_realtime_command_ptr enqueue_realtime_command = protocol_enqueue_realtime_command;
@@ -390,7 +406,7 @@ static void streamClose (ws_sessiondata_t *session)
         stream_disconnect(session->stream);
         session->stream = NULL;
         streambuffers.session = NULL;
-        ws_streams[0].flags.connected = false;
+        ws_streams[0].state.connected = false;
         streamRxFlush();
         streamTxFlush();
     }
@@ -412,7 +428,7 @@ bool websocket_register_frame_handler (websocket_t *session, websocket_on_frame_
 
 static bool is_connected (void)
 {
-    return ws_streams[0].flags.connected;
+    return ws_streams[0].state.connected;
 }
 
 static const io_stream_t *claim_stream (uint32_t baud_rate)
@@ -433,11 +449,11 @@ static const io_stream_t *claim_stream (uint32_t baud_rate)
         .set_enqueue_rt_handler = streamSetRtHandler
     };
 
-    if(ws_streams[0].flags.claimed)
+    if(ws_streams[0].prop.flags.claimed)
         return NULL;
 
     if(baud_rate != 0)
-        ws_streams[0].flags.claimed = On;
+        ws_streams[0].prop.flags.claimed = On;
 
     return &stream;
 }
@@ -489,7 +505,8 @@ bool websocket_set_stream_flags (websocket_t *session, io_stream_state_t stream_
     if(session == NULL || ((ws_sessiondata_t *)session)->magic != WEBSOCKETD_MAGIC)
         return false;
 
-    ((ws_sessiondata_t *)session)->stream_state = stream_state;
+    if((((ws_sessiondata_t *)session)->stream_state.webui_connected = stream_state.webui_connected))
+        ((ws_sessiondata_t *)session)->stream_state.connected = On;
 
     return true;
 }
@@ -944,10 +961,10 @@ bool websocket_claim_stream (websocket_t *websocket)
         if(hal.stream.type == StreamType_WebSocket || hal.stream.state.webui_connected) {
             session->stream = stream;
             streambuffers.session = session;
-            hal.stream.state = session->stream_state;
+            hal.stream.state.webui_connected = session->stream_state.webui_connected;
         }
 
-        ws_streams[0].flags.connected = true;
+        ws_streams[0].state.connected = true;
     }
 
     return hal.stream.type == StreamType_WebSocket;
@@ -1383,8 +1400,8 @@ void websocketd_stop (void)
 bool websocketd_init (uint16_t port)
 {
     static io_stream_details_t streams = {
-        .n_streams = sizeof(ws_streams) / sizeof(io_stream_properties_t),
-        .streams = ws_streams,
+        .n_streams = 1, //sizeof(ws_streams) / sizeof(ws_stream_properties_t),
+        .streams = &ws_streams[0].prop,
     };
 
     err_t err;
