@@ -62,7 +62,7 @@ PROGMEM static const network_services_t allowed_services = {
 #if WEBSOCKET_ENABLE
     .websocket = 1,
 #endif
-#if FTP_ENABLE && SDCARD_ENABLE
+#if FTP_ENABLE && (SDCARD_ENABLE || LITTLEFS_ENABLE)
     .ftp = 1,
 #endif
 #if HTTP_ENABLE

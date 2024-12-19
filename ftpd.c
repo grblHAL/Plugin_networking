@@ -1168,7 +1168,7 @@ static err_t ftpd_msgrecv (void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t
                 pt = strlen(fsm->cmd.text) < (strlen(cmd) + 1) ? "" :  &fsm->cmd.text[strlen(cmd) + 1];
 
                 if (ftpd_cmd->func) {
-                    if(ftpd_cmd->check_busy && sdcard_busy())
+                    if(ftpd_cmd->check_busy && stream_is_file())
                         send_msg(pcb, fsm, msg452);
                     else
                         ftpd_cmd->func(pt, pcb, fsm);
@@ -1275,8 +1275,9 @@ bool ftpd_init (uint16_t port)
 
         pcb = tcp_listen(pcb);
         tcp_accept(pcb, ftpd_msgaccept);
-
-        sdcard_getfs();
+#if SDCARD_ENABLE
+        sdcard_getfs(); // try to mount SD card
+#endif
     }
 
     return err == ERR_OK;
