@@ -43,9 +43,11 @@
 #ifdef ARDUINO
 #include "../driver.h"
 #include "../grbl/vfs.h"
+#include "../grbl/stream_file.h"
 #else
 #include "driver.h"
 #include "grbl/vfs.h"
+#include "grbl/stream_file.h"
 #endif
 
 #if FTP_ENABLE
