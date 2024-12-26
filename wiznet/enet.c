@@ -51,6 +51,7 @@
 
 #define MDNS_TTL 32
 #define SOCKET_MACRAW 0
+#define LINK_CHECK_INTERVAL 200
 
 extern uint8_t mac[6];
 
@@ -170,18 +171,6 @@ network_info_t *networking_get_info (void)
     return &info;
 }
 
-static void link_status_callback (struct netif *netif)
-{
-    bool isLinkUp = netif_is_link_up(netif);
-
-    if(isLinkUp != linkUp) {
-        linkUp = isLinkUp;
-#if TELNET_ENABLE
-        telnetd_notify_link_status(linkUp);
-#endif
-    }
-}
-
 #if MDNS_ENABLE
 
 static void mdns_device_info (struct mdns_service *service, void *txt_userdata)
@@ -205,10 +194,10 @@ static void mdns_service_info (struct mdns_service *service, void *txt_userdata)
 static void netif_status_callback (struct netif *netif)
 {
 #if IP_V6
-    if(netif->ip_addr.u_addr.ip4.addr == 0)
+    if(!linkUp || netif->ip_addr.u_addr.ip4.addr == 0)
         return;
 #else
-    if(netif->ip_addr.addr == 0)
+    if(!linkUp || netif->ip_addr.addr == 0)
         return;
 #endif
 
@@ -278,12 +267,33 @@ static void netif_status_callback (struct netif *netif)
 #endif
 }
 
-/*
+static void link_status_callback (struct netif *netif)
+{
+    bool isLinkUp = netif_is_link_up(netif);
+
+    if(isLinkUp != linkUp) {
+
+        if((linkUp = isLinkUp) && network.ip_mode == IpMode_Static)
+            netif_status_callback(netif);
+#if TELNET_ENABLE
+        telnetd_notify_link_status(linkUp);
+#endif
+    }
+}
+
 static void link_check (void *data)
 {
-    task_add_delayed(link_check, NULL, 100);
+    uint8_t link_ok = false;
+
+    ctlwizchip(CW_GET_PHYLINK, &link_ok);
+
+// TODO: stop running services when link is down
+
+    if(link_ok)
+        netif_set_link_up(netif_default);
+    else
+        task_add_delayed(link_check, NULL, LINK_CHECK_INTERVAL);
 }
-*/
 
 static void enet_poll (void *data)
 {
@@ -427,7 +437,15 @@ bool enet_start (void)
             if(socket(SOCKET_MACRAW, Sn_MR_MACRAW, network.telnet_port, 0x00) < 0)
                 return false;
 
-            netif_set_link_up(netif_default);
+            uint8_t link_ok;
+            if(ctlwizchip(CW_GET_PHYLINK, &link_ok) == -1)
+                return false;
+
+            if(link_ok)
+                netif_set_link_up(netif_default);
+            else
+                task_add_delayed(link_check, NULL, LINK_CHECK_INTERVAL);
+
             netif_set_up(netif_default);
 
             wizchip_gpio_interrupt_initialize(SOCKET_MACRAW, irq_handler);
