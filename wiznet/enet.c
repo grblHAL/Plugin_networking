@@ -3,7 +3,7 @@
 
   Part of grblHAL
 
-  Copyright (c) 2023-2024 Terje Io
+  Copyright (c) 2023-2025 Terje Io
 
   grblHAL is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -38,6 +38,18 @@
 #include "lwip/timeouts.h"
 #include "lwip/init.h"
 
+#ifdef MDNS_ENABLE
+
+#if LWIP_VERSION < ((2 << 24)|(2 << 16))
+#define MDNS_TTL ,32
+#else
+#define MDNS_TTL
+#endif
+
+#include "lwip/apps/mdns.h"
+
+#endif
+
 #include "wizchip_conf.h"
 #include "socket.h"
 #include "port/w5x00_lwip.h"
@@ -49,7 +61,7 @@
 
 #include "networking/networking.h"
 
-#define MDNS_TTL 32
+
 #define SOCKET_MACRAW 0
 #define LINK_CHECK_INTERVAL 200
 
@@ -237,20 +249,20 @@ static void netif_status_callback (struct netif *netif)
 
         mdns_resp_init();
 
-        if((services.mdns = mdns_resp_add_netif(netif_default, network.hostname, MDNS_TTL) == ERR_OK)) {
+        if((services.mdns = mdns_resp_add_netif(netif_default, network.hostname MDNS_TTL) == ERR_OK)) {
 
-            mdns_resp_add_service(netif_default, network.hostname, "_device-info", DNSSD_PROTO_TCP, 0, MDNS_TTL, mdns_device_info, "version=" GRBL_VERSION);
+            mdns_resp_add_service(netif_default, network.hostname, "_device-info", DNSSD_PROTO_TCP, 0 MDNS_TTL, mdns_device_info, "version=" GRBL_VERSION);
 
             if(services.http)
-                mdns_resp_add_service(netif_default, network.hostname, "_http", DNSSD_PROTO_TCP, network.http_port, MDNS_TTL, mdns_service_info, "path=/");
+                mdns_resp_add_service(netif_default, network.hostname, "_http", DNSSD_PROTO_TCP, network.http_port MDNS_TTL, mdns_service_info, "path=/");
             if(services.webdav)
-                mdns_resp_add_service(netif_default, network.hostname, "_webdav", DNSSD_PROTO_TCP, network.http_port, MDNS_TTL, mdns_service_info, "path=/");
+                mdns_resp_add_service(netif_default, network.hostname, "_webdav", DNSSD_PROTO_TCP, network.http_port MDNS_TTL, mdns_service_info, "path=/");
             if(services.websocket)
-                mdns_resp_add_service(netif_default, network.hostname, "_websocket", DNSSD_PROTO_TCP, network.websocket_port, MDNS_TTL, mdns_service_info, NULL);
+                mdns_resp_add_service(netif_default, network.hostname, "_websocket", DNSSD_PROTO_TCP, network.websocket_port MDNS_TTL, mdns_service_info, NULL);
             if(services.telnet)
-                mdns_resp_add_service(netif_default, network.hostname, "_telnet", DNSSD_PROTO_TCP, network.telnet_port, MDNS_TTL, mdns_service_info, NULL);
+                mdns_resp_add_service(netif_default, network.hostname, "_telnet", DNSSD_PROTO_TCP, network.telnet_port MDNS_TTL, mdns_service_info, NULL);
             if(services.ftp)
-                mdns_resp_add_service(netif_default, network.hostname, "_ftp", DNSSD_PROTO_TCP, network.ftp_port, MDNS_TTL, mdns_service_info, "path=/");
+                mdns_resp_add_service(netif_default, network.hostname, "_ftp", DNSSD_PROTO_TCP, network.ftp_port MDNS_TTL, mdns_service_info, "path=/");
 
 //            mdns_resp_announce(netif_default);
         }
