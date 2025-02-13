@@ -134,9 +134,15 @@ typedef uint32_t TickType_t;
 #define configTICK_RATE_HZ 1000
 #define xTaskGetTickCount() sys_now()
 #define portMUX_TYPE void*
+#define SemaphoreHandle_t void*
 #define portMUX_INITIALIZER_UNLOCKED NULL
 #define taskENTER_CRITICAL()
 #define taskEXIT_CRITICAL()
+#define pdTRUE true
+#define portMAX_DELAY 0
+#define xSemaphoreCreateMutex() ((void *)1)
+#define xSemaphoreTake(mutex, delay) pdTRUE
+#define xSemaphoreGive(mutex)
 #endif
 
 #ifndef SYS_ARCH_PROTECT

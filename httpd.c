@@ -95,6 +95,7 @@
 
 #include "strutils.h"
 #include "urldecode.h"
+#include "networking.h"
 
 /**/
 
@@ -358,6 +359,7 @@ static const char *conn_keep2 = "Connection: keep-alive" CRLF "Content-Length: "
 //static const char *cont_len = "Content-Length: ";
 static const char *rsp404 = "<html><body><h2>404: The requested file cannot be found.</h2></body></html>" CRLF;
 static const char *http_methods = HTTP_METHODS;
+static SemaphoreHandle_t handler_mux;
 
 #define NUM_DEFAULT_FILENAMES LWIP_ARRAYSIZE(httpd_default_filenames)
 
@@ -1839,7 +1841,10 @@ static err_t http_process_request (http_state_t *hs, const char *uri)
                 if(params)
                     *params = '\0'; /* URI contains parameters. NULL-terminate the base URI */
                 hs->uri = uri + strlen(uri_handler->uri) - 2;
-                uri = uri_handler->handler(&hs->request);
+                if(xSemaphoreTake(handler_mux, portMAX_DELAY) == pdTRUE) {
+                    uri = uri_handler->handler(&hs->request);
+                    xSemaphoreGive(handler_mux);
+                }
             }
             break;
 
@@ -1883,7 +1888,10 @@ static err_t http_process_request (http_state_t *hs, const char *uri)
                 if(params)
                     *params = '\0'; /* URI contains parameters. NULL-terminate the base URI */
                 hs->uri = uri + strlen(uri_handler->uri) - 2;
-                uri = uri_handler->handler(&hs->request);
+                if(xSemaphoreTake(handler_mux, portMAX_DELAY) == pdTRUE) {
+                    uri = uri_handler->handler(&hs->request);
+                    xSemaphoreGive(handler_mux);
+                }
             } else if(httpd.on_unknown_method_process) {
 
                 size_t uri_len = strlen(uri);
@@ -2250,22 +2258,29 @@ static err_t httpd_init_pcb (struct altcp_pcb *pcb, u16_t port)
  */
 bool httpd_init (uint16_t port)
 {
-    struct altcp_pcb *pcb;
+    err_t err = ERR_VAL;
+
+    if((handler_mux = xSemaphoreCreateMutex())) {
+
+        struct altcp_pcb *pcb;
 
 #if HTTPD_USE_MEM_POOL
-    LWIP_MEMPOOL_INIT(HTTPD_STATE);
+        LWIP_MEMPOOL_INIT(HTTPD_STATE);
   #if LWIP_HTTPD_SSI
-    LWIP_MEMPOOL_INIT(HTTPD_SSI_STATE);
+        LWIP_MEMPOOL_INIT(HTTPD_SSI_STATE);
   #endif
 #endif
-    LWIP_DEBUGF(HTTPD_DEBUG, ("httpd_init\n"));
+        LWIP_DEBUGF(HTTPD_DEBUG, ("httpd_init\n"));
 
 /* LWIP_ASSERT_CORE_LOCKED(); is checked by tcp_new() */
 
-    pcb = altcp_tcp_new_ip_type(IPADDR_TYPE_ANY);
-    LWIP_ASSERT("httpd_init: tcp_new failed", pcb != NULL);
+        pcb = altcp_tcp_new_ip_type(IPADDR_TYPE_ANY);
+        LWIP_ASSERT("httpd_init: tcp_new failed", pcb != NULL);
 
-    return httpd_init_pcb(pcb, port) == ERR_OK;
+        err = httpd_init_pcb(pcb, port);
+    }
+
+    return err == ERR_OK;
 }
 
 #if HTTPD_ENABLE_HTTPS
