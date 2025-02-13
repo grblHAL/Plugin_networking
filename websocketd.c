@@ -248,9 +248,17 @@ static ws_stream_t ws_streams[] = {
     }
 };
 static enqueue_realtime_command_ptr enqueue_realtime_command = protocol_enqueue_realtime_command;
-#if ESP_PLATFORM
-static portMUX_TYPE rx_mux = portMUX_INITIALIZER_UNLOCKED;
-#endif
+SemaphoreHandle_t rx_mutex = NULL;
+#define release_rx_mutex() xSemaphoreGive(rx_mutex)
+#define take_rx_mutex() xSemaphoreTake(rx_mutex, portMAX_DELAY ) == pdTRUE
+#else
+#define release_rx_mutex() taskEXIT_CRITICAL()
+
+static inline bool enter_critical(void) {
+    taskENTER_CRITICAL();
+    return true;
+}
+#define take_rx_mutex() enter_critical()
 
 websocket_events_t websocket;
 
@@ -261,13 +269,17 @@ websocket_events_t websocket;
 static int16_t streamGetC (void)
 {
     int16_t data;
+    if (take_rx_mutex()) {
+        if(streambuffers.rxbuf.tail == streambuffers.rxbuf.head)
+            {
+            release_rx_mutex();
+            return SERIAL_NO_DATA; // no data available else EOF
+            }
 
-    if(streambuffers.rxbuf.tail == streambuffers.rxbuf.head)
-        return SERIAL_NO_DATA; // no data available else EOF
-
-    data = streambuffers.rxbuf.data[streambuffers.rxbuf.tail];                          // Get next character
-    streambuffers.rxbuf.tail = BUFNEXT(streambuffers.rxbuf.tail, streambuffers.rxbuf);  // and update pointer
-
+        data = streambuffers.rxbuf.data[streambuffers.rxbuf.tail];                          // Get next character
+        streambuffers.rxbuf.tail = BUFNEXT(streambuffers.rxbuf.tail, streambuffers.rxbuf);  // and update pointer
+        release_rx_mutex();
+    } 
     return data;
 }
 
@@ -290,9 +302,12 @@ static void streamRxFlush (void)
 
 static void websocketd_RxCancel (void)
 {
-    streambuffers.rxbuf.data[streambuffers.rxbuf.head] = ASCII_CAN;
-    streambuffers.rxbuf.tail = streambuffers.rxbuf.head;
-    streambuffers.rxbuf.head = BUFNEXT(streambuffers.rxbuf.head, streambuffers.rxbuf);
+    if (take_rx_mutex()) {
+        streambuffers.rxbuf.data[streambuffers.rxbuf.head] = ASCII_CAN;
+        streambuffers.rxbuf.tail = streambuffers.rxbuf.head;
+        streambuffers.rxbuf.head = BUFNEXT(streambuffers.rxbuf.head, streambuffers.rxbuf);
+        release_rx_mutex();
+    }
 }
 
 static bool streamSuspendInput (bool suspend)
@@ -306,23 +321,16 @@ bool websocketd_RxPutC (char c)
 
     // discard input if MPG has taken over...
     if((ok = streambuffers.session && streambuffers.session->state == WsState_Connected && hal.stream.type != StreamType_MPG)) {
-#if ESP_PLATFORM
-        taskENTER_CRITICAL(&rx_mux);
-#else
-        taskENTER_CRITICAL();
-#endif
-        if(!enqueue_realtime_command(c)) {                          // If not a real time command attempt to buffer it
-            uint_fast16_t next_head = BUFNEXT(streambuffers.rxbuf.head, streambuffers.rxbuf);
-            if((overflow = next_head == streambuffers.rxbuf.tail))  // If buffer full
-                streambuffers.rxbuf.overflow = true;                // flag overflow
-            streambuffers.rxbuf.data[streambuffers.rxbuf.head] = c; // add data to buffer
-            streambuffers.rxbuf.head = next_head;                   // and update pointer
+        if (take_rx_mutex) {
+            if(!enqueue_realtime_command(c)) {                          // If not a real time command attempt to buffer it
+                uint_fast16_t next_head = BUFNEXT(streambuffers.rxbuf.head, streambuffers.rxbuf);
+                if((overflow = next_head == streambuffers.rxbuf.tail))  // If buffer full
+                    streambuffers.rxbuf.overflow = true;                // flag overflow
+                streambuffers.rxbuf.data[streambuffers.rxbuf.head] = c; // add data to buffer
+                streambuffers.rxbuf.head = next_head;                   // and update pointer
+            }
+        release_rx_mutex();
         }
-#if ESP_PLATFORM
-        taskEXIT_CRITICAL(&rx_mux);
-#else
-        taskEXIT_CRITICAL();
-#endif
     }
 
     return ok && !overflow;
@@ -1408,6 +1416,13 @@ bool websocketd_init (uint16_t port)
 
     ws_server.port = port;
     ws_server.link_lost = false;
+#if ESP_PLATFORM
+    // Create a mutex to protect the RX buffer
+    rx_mutex = xSemaphoreCreateMutex();
+    if (rx_mutex == NULL) {
+        return ERR_FAIL;
+    }
+#endif // ESP_PLATFORM
 
     struct tcp_pcb *pcb = tcp_new();
 
