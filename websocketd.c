@@ -248,6 +248,8 @@ static ws_stream_t ws_streams[] = {
     }
 };
 static enqueue_realtime_command_ptr enqueue_realtime_command = protocol_enqueue_realtime_command;
+
+#if ESP_PLATFORM
 SemaphoreHandle_t rx_mutex = NULL;
 #define release_rx_mutex() xSemaphoreGive(rx_mutex)
 #define take_rx_mutex() xSemaphoreTake(rx_mutex, portMAX_DELAY ) == pdTRUE
@@ -259,6 +261,7 @@ static inline bool enter_critical(void) {
     return true;
 }
 #define take_rx_mutex() enter_critical()
+#endif // ESP_PLATFORM 
 
 websocket_events_t websocket;
 
@@ -321,7 +324,7 @@ bool websocketd_RxPutC (char c)
 
     // discard input if MPG has taken over...
     if((ok = streambuffers.session && streambuffers.session->state == WsState_Connected && hal.stream.type != StreamType_MPG)) {
-        if (take_rx_mutex) {
+        if (take_rx_mutex()) {
             if(!enqueue_realtime_command(c)) {                          // If not a real time command attempt to buffer it
                 uint_fast16_t next_head = BUFNEXT(streambuffers.rxbuf.head, streambuffers.rxbuf);
                 if((overflow = next_head == streambuffers.rxbuf.tail))  // If buffer full
@@ -1420,7 +1423,7 @@ bool websocketd_init (uint16_t port)
     // Create a mutex to protect the RX buffer
     rx_mutex = xSemaphoreCreateMutex();
     if (rx_mutex == NULL) {
-        return ERR_FAIL;
+        return ESP_ERR_INVALID_STATE;
     }
 #endif // ESP_PLATFORM
 
