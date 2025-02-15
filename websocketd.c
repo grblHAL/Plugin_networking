@@ -248,20 +248,7 @@ static ws_stream_t ws_streams[] = {
     }
 };
 static enqueue_realtime_command_ptr enqueue_realtime_command = protocol_enqueue_realtime_command;
-
-#if ESP_PLATFORM
-SemaphoreHandle_t rx_mutex = NULL;
-#define release_rx_mutex() xSemaphoreGive(rx_mutex)
-#define take_rx_mutex() xSemaphoreTake(rx_mutex, portMAX_DELAY ) == pdTRUE
-#else
-#define release_rx_mutex() taskEXIT_CRITICAL()
-
-static inline bool enter_critical(void) {
-    taskENTER_CRITICAL();
-    return true;
-}
-#define take_rx_mutex() enter_critical()
-#endif // ESP_PLATFORM 
+static SemaphoreHandle_t handler_rx_mux;
 
 websocket_events_t websocket;
 
@@ -272,17 +259,17 @@ websocket_events_t websocket;
 static int16_t streamGetC (void)
 {
     int16_t data;
-    if (take_rx_mutex()) {
-        if(streambuffers.rxbuf.tail == streambuffers.rxbuf.head)
-            {
-            release_rx_mutex();
+    if(xSemaphoreTake(handler_rx_mux, portMAX_DELAY) == pdTRUE) {
+        if(streambuffers.rxbuf.tail == streambuffers.rxbuf.head){
+            xSemaphoreGive(handler_rx_mux);
             return SERIAL_NO_DATA; // no data available else EOF
-            }
+        }
 
         data = streambuffers.rxbuf.data[streambuffers.rxbuf.tail];                          // Get next character
         streambuffers.rxbuf.tail = BUFNEXT(streambuffers.rxbuf.tail, streambuffers.rxbuf);  // and update pointer
-        release_rx_mutex();
-    } 
+        xSemaphoreGive(handler_rx_mux);
+    }
+
     return data;
 }
 
@@ -300,16 +287,19 @@ static uint16_t streamRxFree (void)
 
 static void streamRxFlush (void)
 {
-    streambuffers.rxbuf.tail = streambuffers.rxbuf.head;
+    if(xSemaphoreTake(handler_rx_mux, portMAX_DELAY) == pdTRUE) {
+        streambuffers.rxbuf.tail = streambuffers.rxbuf.head;
+        xSemaphoreGive(handler_rx_mux);
+    }
 }
 
 static void websocketd_RxCancel (void)
 {
-    if (take_rx_mutex()) {
+    if(xSemaphoreTake(handler_rx_mux, portMAX_DELAY) == pdTRUE) {
         streambuffers.rxbuf.data[streambuffers.rxbuf.head] = ASCII_CAN;
         streambuffers.rxbuf.tail = streambuffers.rxbuf.head;
         streambuffers.rxbuf.head = BUFNEXT(streambuffers.rxbuf.head, streambuffers.rxbuf);
-        release_rx_mutex();
+        xSemaphoreGive(handler_rx_mux);
     }
 }
 
@@ -324,7 +314,7 @@ bool websocketd_RxPutC (char c)
 
     // discard input if MPG has taken over...
     if((ok = streambuffers.session && streambuffers.session->state == WsState_Connected && hal.stream.type != StreamType_MPG)) {
-        if (take_rx_mutex()) {
+        if(xSemaphoreTake(handler_rx_mux, portMAX_DELAY) == pdTRUE) {
             if(!enqueue_realtime_command(c)) {                          // If not a real time command attempt to buffer it
                 uint_fast16_t next_head = BUFNEXT(streambuffers.rxbuf.head, streambuffers.rxbuf);
                 if((overflow = next_head == streambuffers.rxbuf.tail))  // If buffer full
@@ -332,8 +322,9 @@ bool websocketd_RxPutC (char c)
                 streambuffers.rxbuf.data[streambuffers.rxbuf.head] = c; // add data to buffer
                 streambuffers.rxbuf.head = next_head;                   // and update pointer
             }
-        release_rx_mutex();
+            xSemaphoreGive(handler_rx_mux);
         }
+
     }
 
     return ok && !overflow;
@@ -1415,24 +1406,19 @@ bool websocketd_init (uint16_t port)
         .streams = &ws_streams[0].prop,
     };
 
-    err_t err;
+    err_t err = ERR_VAL;
 
     ws_server.port = port;
     ws_server.link_lost = false;
-#if ESP_PLATFORM
-    // Create a mutex to protect the RX buffer
-    rx_mutex = xSemaphoreCreateMutex();
-    if (rx_mutex == NULL) {
-        return ESP_ERR_INVALID_STATE;
-    }
-#endif // ESP_PLATFORM
+    if((handler_rx_mux = xSemaphoreCreateMutex())) {
+     
+        struct tcp_pcb *pcb = tcp_new();
 
-    struct tcp_pcb *pcb = tcp_new();
-
-    if((err = tcp_bind(pcb, IP_ADDR_ANY, port)) == ERR_OK) {
-        ws_server.pcb = tcp_listen(pcb);
-        tcp_accept(ws_server.pcb, websocketd_accept);
-        stream_register_streams(&streams);
+        if((err = tcp_bind(pcb, IP_ADDR_ANY, port)) == ERR_OK) {
+            ws_server.pcb = tcp_listen(pcb);
+            tcp_accept(ws_server.pcb, websocketd_accept);
+            stream_register_streams(&streams);
+        }
     }
 
     return err == ERR_OK;
