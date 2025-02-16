@@ -41,7 +41,7 @@
 #ifdef MDNS_ENABLE
 
 #if LWIP_VERSION < ((2 << 24)|(2 << 16))
-#define MDNS_TTL ,32
+#define MDNS_TTL ,255
 #else
 #define MDNS_TTL
 #endif

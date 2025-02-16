@@ -1,12 +1,12 @@
 //
 // telnetd.c - lwIP "raw" telnet daemon
 //
-// v2.3 / 2023-07-09 / Io Engineering / Terje
+// v2.4 / 2025-02-15 / Io Engineering / Terje
 //
 
 /*
 
-Copyright (c) 2018-2023, Terje Io
+Copyright (c) 2018-2025, Terje Io
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -95,10 +95,8 @@ static const sessiondata_t defaultSettings =
 
 static tcp_server_t telnet_server;
 static sessiondata_t streamSession;
+static SemaphoreHandle_t rx_mux;
 static enqueue_realtime_command_ptr enqueue_realtime_command = protocol_enqueue_realtime_command;
-#if ESP_PLATFORM
-static portMUX_TYPE rx_mux = portMUX_INITIALIZER_UNLOCKED;
-#endif
 
 static void telnet_stream_handler (sessiondata_t *session);
 
@@ -153,25 +151,18 @@ static bool streamRxPutC (char c)
 
     // discard input if MPG has taken over...
     if(!(mpg = hal.stream.type == StreamType_MPG)) {
-#if ESP_PLATFORM
-        taskENTER_CRITICAL(&rx_mux);
-#else
-        taskENTER_CRITICAL();
-#endif
-        if(!enqueue_realtime_command(c)) {                              // If not a real time command attempt to buffer it
-            uint_fast16_t next_head = BUFNEXT(streamSession.rxbuf.head, streamSession.rxbuf);
-            if((overflow = next_head == streamSession.rxbuf.tail))      // If buffer full
-                streamSession.rxbuf.overflow = true;                    // flag overflow
-            else {
-                streamSession.rxbuf.data[streamSession.rxbuf.head] = c; // Add data to buffer and
-                streamSession.rxbuf.head = next_head;                   // update pointer
+        if(xSemaphoreTake(rx_mux, portMAX_DELAY) == pdTRUE) {
+            if(!enqueue_realtime_command(c)) {                              // If not a real time command attempt to buffer it
+                uint_fast16_t next_head = BUFNEXT(streamSession.rxbuf.head, streamSession.rxbuf);
+                if((overflow = next_head == streamSession.rxbuf.tail))      // If buffer full
+                    streamSession.rxbuf.overflow = true;                    // flag overflow
+                else {
+                    streamSession.rxbuf.data[streamSession.rxbuf.head] = c; // Add data to buffer and
+                    streamSession.rxbuf.head = next_head;                   // update pointer
+                }
             }
+            xSemaphoreGive(rx_mux);
         }
-#if ESP_PLATFORM
-        taskEXIT_CRITICAL(&rx_mux);
-#else
-        taskEXIT_CRITICAL();
-#endif
     }
 
     return mpg || !overflow;
@@ -585,18 +576,21 @@ void telnetd_stop (void)
 
 bool telnetd_init (uint16_t port)
 {
-    err_t err;
+    err_t err = ERR_VAL;
 
-    telnet_server.port = port;
+    if((rx_mux = xSemaphoreCreateMutex())) {
 
-    struct tcp_pcb *pcb = tcp_new();
+        struct tcp_pcb *pcb = tcp_new();
 
-    if((err = tcp_bind(pcb, IP_ADDR_ANY, port)) == ERR_OK) {
+        telnet_server.port = port;
 
-        telnet_server.pcb = tcp_listen(pcb);
+        if((err = tcp_bind(pcb, IP_ADDR_ANY, port)) == ERR_OK) {
 
-        tcp_arg(telnet_server.pcb, &streamSession);
-        tcp_accept(telnet_server.pcb, telnet_accept);
+            telnet_server.pcb = tcp_listen(pcb);
+
+            tcp_arg(telnet_server.pcb, &streamSession);
+            tcp_accept(telnet_server.pcb, telnet_accept);
+        }
     }
 
     return err == ERR_OK;

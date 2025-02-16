@@ -1,12 +1,12 @@
 //
 // websocketd.c - lwIP websocket daemon implementation
 //
-// v2.7 / 2023-07-09 / Io Engineering / Terje
+// v2.8 / 2025-02-15 / Io Engineering / Terje
 //
 
 /*
 
-Copyright (c) 2019-2023, Terje Io
+Copyright (c) 2019-2025, Terje Io
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -248,10 +248,9 @@ static ws_stream_t ws_streams[] = {
     }
 };
 static enqueue_realtime_command_ptr enqueue_realtime_command = protocol_enqueue_realtime_command;
-static SemaphoreHandle_t handler_rx_mux;
+static SemaphoreHandle_t rx_mux;
 
 websocket_events_t websocket;
-
 
 //
 // streamGetC - returns -1 if no data available
@@ -259,15 +258,16 @@ websocket_events_t websocket;
 static int16_t streamGetC (void)
 {
     int16_t data;
-    if(xSemaphoreTake(handler_rx_mux, portMAX_DELAY) == pdTRUE) {
+
+    if(xSemaphoreTake(rx_mux, portMAX_DELAY) == pdTRUE) {
         if(streambuffers.rxbuf.tail == streambuffers.rxbuf.head){
-            xSemaphoreGive(handler_rx_mux);
+            xSemaphoreGive(rx_mux);
             return SERIAL_NO_DATA; // no data available else EOF
         }
 
         data = streambuffers.rxbuf.data[streambuffers.rxbuf.tail];                          // Get next character
         streambuffers.rxbuf.tail = BUFNEXT(streambuffers.rxbuf.tail, streambuffers.rxbuf);  // and update pointer
-        xSemaphoreGive(handler_rx_mux);
+        xSemaphoreGive(rx_mux);
     }
 
     return data;
@@ -287,19 +287,19 @@ static uint16_t streamRxFree (void)
 
 static void streamRxFlush (void)
 {
-    if(xSemaphoreTake(handler_rx_mux, portMAX_DELAY) == pdTRUE) {
+    if(xSemaphoreTake(rx_mux, portMAX_DELAY) == pdTRUE) {
         streambuffers.rxbuf.tail = streambuffers.rxbuf.head;
-        xSemaphoreGive(handler_rx_mux);
+        xSemaphoreGive(rx_mux);
     }
 }
 
 static void websocketd_RxCancel (void)
 {
-    if(xSemaphoreTake(handler_rx_mux, portMAX_DELAY) == pdTRUE) {
+    if(xSemaphoreTake(rx_mux, portMAX_DELAY) == pdTRUE) {
         streambuffers.rxbuf.data[streambuffers.rxbuf.head] = ASCII_CAN;
         streambuffers.rxbuf.tail = streambuffers.rxbuf.head;
         streambuffers.rxbuf.head = BUFNEXT(streambuffers.rxbuf.head, streambuffers.rxbuf);
-        xSemaphoreGive(handler_rx_mux);
+        xSemaphoreGive(rx_mux);
     }
 }
 
@@ -314,7 +314,7 @@ bool websocketd_RxPutC (char c)
 
     // discard input if MPG has taken over...
     if((ok = streambuffers.session && streambuffers.session->state == WsState_Connected && hal.stream.type != StreamType_MPG)) {
-        if(xSemaphoreTake(handler_rx_mux, portMAX_DELAY) == pdTRUE) {
+        if(xSemaphoreTake(rx_mux, portMAX_DELAY) == pdTRUE) {
             if(!enqueue_realtime_command(c)) {                          // If not a real time command attempt to buffer it
                 uint_fast16_t next_head = BUFNEXT(streambuffers.rxbuf.head, streambuffers.rxbuf);
                 if((overflow = next_head == streambuffers.rxbuf.tail))  // If buffer full
@@ -322,7 +322,7 @@ bool websocketd_RxPutC (char c)
                 streambuffers.rxbuf.data[streambuffers.rxbuf.head] = c; // add data to buffer
                 streambuffers.rxbuf.head = next_head;                   // and update pointer
             }
-            xSemaphoreGive(handler_rx_mux);
+            xSemaphoreGive(rx_mux);
         }
 
     }
@@ -334,13 +334,13 @@ static bool streamPutC (const char c)
 {
     uint_fast16_t next_head = BUFNEXT(streambuffers.txbuf.head, streambuffers.txbuf);
 
-    while(streambuffers.txbuf.tail == next_head) {                               // Buffer full, block until space is available...
+    while(streambuffers.txbuf.tail == next_head) {              // Buffer full, block until space is available...
         if(!hal.stream_blocking_callback())
             return false;
     }
 
-    streambuffers.txbuf.data[streambuffers.txbuf.head] = c;                     // Add data to buffer
-    streambuffers.txbuf.head = next_head;                                       // and update head pointer
+    streambuffers.txbuf.data[streambuffers.txbuf.head] = c;     // Add data to buffer
+    streambuffers.txbuf.head = next_head;                       // and update head pointer
 
     return true;
 }
@@ -1408,11 +1408,12 @@ bool websocketd_init (uint16_t port)
 
     err_t err = ERR_VAL;
 
-    ws_server.port = port;
-    ws_server.link_lost = false;
-    if((handler_rx_mux = xSemaphoreCreateMutex())) {
+    if((rx_mux = xSemaphoreCreateMutex())) {
      
         struct tcp_pcb *pcb = tcp_new();
+
+        ws_server.port = port;
+        ws_server.link_lost = false;
 
         if((err = tcp_bind(pcb, IP_ADDR_ANY, port)) == ERR_OK) {
             ws_server.pcb = tcp_listen(pcb);
@@ -1424,4 +1425,4 @@ bool websocketd_init (uint16_t port)
     return err == ERR_OK;
 }
 
-#endif
+#endif // WEBSOCKET_ENABLE
