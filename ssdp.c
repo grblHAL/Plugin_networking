@@ -144,7 +144,7 @@ const char *ssdp_handler_get (http_request_t *request)
 {
     char xml[800];
     vfs_file_t *file = NULL;
-    network_info_t *network = networking_get_info();
+    network_info_t *network = networking.get_info(NULL);
     char *mfg_url = hal.driver_url &&  hal.board_url ? hal.driver_url : GRBL_URL,
          *model_url = hal.board_url ? hal.board_url : (hal.driver_url ? hal.driver_url : GRBL_URL);
 
@@ -351,7 +351,7 @@ bool ssdp_init (uint16_t httpd_port)
 
             if(res == ERR_OK) {
 
-                network_info_t *network = networking_get_info();
+                network_info_t *network = networking.get_info(NULL);
 
                 srand(hal.get_elapsed_ticks());
                 sprintf(location, "%s:%d", network->status.ip, httpd_port);

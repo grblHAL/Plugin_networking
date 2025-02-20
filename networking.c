@@ -1,12 +1,12 @@
 //
 // networking.c - some shared networking code
 //
-// v1.8 / 2024-06-24 / Io Engineering / Terje
+// v1.9 / 2025-02-20 / Io Engineering / Terje
 //
 
 /*
 
-Copyright (c) 2021-2024, Terje Io
+Copyright (c) 2021-2025, Terje Io
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -42,6 +42,14 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <stdio.h>
 #include <string.h>
+
+typedef struct net_if {
+    struct net_if *next;
+    const char *name;
+    network_flags_t status;
+} net_if_t;
+
+static net_if_t net_if = {};
 
 // NOTE: increase #define NETWORK_SERVICES_LEN in networking.h when adding to this array!
 PROGMEM static char const *const service_names[] = {
@@ -86,6 +94,126 @@ PROGMEM static const network_services_t allowed_services = {
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wstringop-overflow"
 #endif
+
+static void network_event (const char *interface, network_status_t status);
+
+static network_info_t *get_info (const char *interface)
+{
+    return NULL;
+}
+
+networking_t networking = {
+    .event = network_event,
+    .get_info = get_info
+};
+
+static void network_event (const char *interface, network_status_t status)
+{
+    net_if_t *intf = &net_if;
+    network_flags_t *prev = NULL;
+
+    if(intf->name == NULL)
+        intf->name = interface;
+
+    do {
+        if(intf->name == interface) {
+            prev = &intf->status;
+            break;
+        }
+        if(intf->next == NULL) {
+            if((intf->next = calloc(sizeof(net_if_t), 1))) {
+                intf = intf->next;
+                intf->name = interface;
+                prev = &intf->status;
+            }
+        }
+    } while((intf = intf->next));
+
+    if(prev == NULL)
+        return;
+
+    if(networking.get_info) {
+
+//        if(!prev->value)
+//            report_message(interface, Message_Plain);
+
+        if(status.changed.ap_started && status.flags.ap_started)
+            report_message("WIFI AP READY", Message_Plain);
+
+        if(status.changed.ip_aquired) {
+
+            network_info_t *info;
+
+            if((info = networking.get_info(interface))) {
+
+                char buf[30];
+
+                if(info->is_ethernet) {
+                    sprintf(buf, "ETHERNET IP=%s", info->status.ip);
+                } else
+                    sprintf(buf, status.flags.ap_started ? "WIFI AP IP=%s" : "WIFI STA IP=%s", info->status.ip);
+
+                report_message(buf, Message_Plain);
+            }
+        }
+
+        if(status.changed.ap_scan_completed && status.flags.ap_scan_completed)
+            report_message("WIFI AP SCAN COMPLETED", Message_Plain);
+    }
+
+    prev->value = status.flags.value;
+}
+
+bool networking_enumerate_interfaces (networking_enumerate_interfaces_callback_ptr callback, void *data)
+{
+    bool ok = false;
+    net_if_t *intf = &net_if;
+
+    if(intf->name) do {
+        network_info_t *info;
+        if((info = networking.get_info(intf->name)))
+            ok = callback(info, intf->status, data);
+    } while(!ok && (intf = intf->next));
+
+    return ok;
+}
+
+bool if_enumerate (network_info_t *info, network_flags_t flags, void *data)
+{
+    if(flags.interface_up) {
+        char buf[60];
+        sprintf(buf, "IF=%s IP=%s MAC=%s", info->interface, info->status.ip, info->mac);
+        report_message(buf, Message_Plain);
+    }
+
+    return false;
+}
+
+static status_code_t netif (sys_state_t state, char *args)
+{
+    networking_enumerate_interfaces(if_enumerate, NULL);
+
+    return Status_OK;
+}
+
+void networking_init (void)
+{
+    static bool ok = false;
+
+    static const sys_command_t net_command_list[] = {
+        {"NETIF", netif, { .allow_blocking = On, .noargs = On }, { .str = "provides information about network interfaces" } }
+    };
+
+    static sys_commands_t net_commands = {
+        .n_commands = sizeof(net_command_list) / sizeof(sys_command_t),
+        .commands = net_command_list
+    };
+
+    if(!ok) {
+        ok = true;
+        system_register_commands(&net_commands);
+    }
+}
 
 network_services_t networking_get_services_list (char *list)
 {

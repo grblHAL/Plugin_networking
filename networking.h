@@ -1,12 +1,12 @@
 //
 // networking.h - some shared networking code
 //
-// v1.8 / 2024-06-24 / Io Engineering / Terje
+// v1.9 / 2025-02-20 / Io Engineering / Terje
 //
 
 /*
 
-Copyright (c) 2019-2024, Terje Io
+Copyright (c) 2019-2025, Terje Io
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -162,18 +162,51 @@ typedef struct
     struct tcp_pcb *pcb;
 } tcp_server_t;
 
+#pragma pack(push, 1)
+
+typedef union {
+    uint16_t value;
+    struct {
+        uint16_t interface_up      :1,
+                 link_up           :1,
+                 ip_aquired        :1,
+                 ap_started        :1,
+                 ap_scan_completed :1,
+                 unassigned        :11;
+    };
+} network_flags_t;
+
+typedef union {
+    uint32_t value;
+    struct {
+        network_flags_t changed;
+        network_flags_t flags;
+    };
+} network_status_t;
+
+#pragma pack(pop)
+
+typedef void (*on_network_event_ptr)(const char *interface, network_status_t status);
+typedef network_info_t *(*networking_get_info)(const char *interface);
+typedef bool networking_enumerate_interfaces_callback_ptr (network_info_t *info, network_flags_t flags, void *data);
+
+typedef struct {
+    on_network_event_ptr event;
+    networking_get_info get_info;
+} networking_t;
+
+void networking_init (void);
 bool networking_ismemnull (void *data, size_t len);
 char *networking_mac_to_string (uint8_t mac[6]);
 bool networking_string_to_mac (char *s, uint8_t mac[6]);
 bool bmac_eth_get (uint8_t mac[6]);
 bool bmac_wifi_get (uint8_t mac[6]);
 network_services_t networking_get_services_list (char *list);
+bool networking_enumerate_interfaces (networking_enumerate_interfaces_callback_ptr callback, void *data);
 #if MQTT_ENABLE
 void networking_make_mqtt_clientid (const char *mac, char *client_id);
 #endif
 
-/* API functions to be provided by driver for WebUI support */
-
-extern network_info_t *networking_get_info (void);
+extern networking_t networking;
 
 #endif // ETHERNET_ENABLE || WIFI_ENABLE
