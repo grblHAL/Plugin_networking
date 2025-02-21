@@ -110,58 +110,52 @@ networking_t networking = {
 static void network_event (const char *interface, network_status_t status)
 {
     net_if_t *intf = &net_if;
-    network_flags_t *prev = NULL;
 
     if(intf->name == NULL)
         intf->name = interface;
 
     do {
-        if(intf->name == interface) {
-            prev = &intf->status;
+        if(intf->name == interface)
             break;
-        }
         if(intf->next == NULL) {
             if((intf->next = calloc(sizeof(net_if_t), 1))) {
                 intf = intf->next;
                 intf->name = interface;
-                prev = &intf->status;
+                break;
             }
         }
     } while((intf = intf->next));
 
-    if(prev == NULL)
+    if(intf == NULL)
         return;
 
-    if(networking.get_info) {
+//    if(!ntf->status.value)
+//        report_message(interface, Message_Plain);
 
-//        if(!prev->value)
-//            report_message(interface, Message_Plain);
+    if(status.changed.ap_started && status.flags.ap_started)
+        report_message("WIFI AP READY", Message_Plain);
 
-        if(status.changed.ap_started && status.flags.ap_started)
-            report_message("WIFI AP READY", Message_Plain);
+    if(status.changed.ip_aquired) {
 
-        if(status.changed.ip_aquired) {
+        network_info_t *info;
 
-            network_info_t *info;
+        if((info = networking.get_info(interface))) {
 
-            if((info = networking.get_info(interface))) {
+            char buf[30];
 
-                char buf[30];
+            if(info->is_ethernet) {
+                sprintf(buf, "ETHERNET IP=%s", info->status.ip);
+            } else
+                sprintf(buf, status.flags.ap_started ? "WIFI AP IP=%s" : "WIFI STA IP=%s", info->status.ip);
 
-                if(info->is_ethernet) {
-                    sprintf(buf, "ETHERNET IP=%s", info->status.ip);
-                } else
-                    sprintf(buf, status.flags.ap_started ? "WIFI AP IP=%s" : "WIFI STA IP=%s", info->status.ip);
-
-                report_message(buf, Message_Plain);
-            }
+            report_message(buf, Message_Plain);
         }
-
-        if(status.changed.ap_scan_completed && status.flags.ap_scan_completed)
-            report_message("WIFI AP SCAN COMPLETED", Message_Plain);
     }
 
-    prev->value = status.flags.value;
+    if(status.changed.ap_scan_completed && status.flags.ap_scan_completed)
+        report_message("WIFI AP SCAN COMPLETED", Message_Plain);
+
+    intf->status.value = status.flags.value;
 }
 
 bool networking_enumerate_interfaces (networking_enumerate_interfaces_callback_ptr callback, void *data)
