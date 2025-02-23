@@ -51,9 +51,10 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <stdbool.h>
 #include <string.h>
 
-#include "strutils.h"
 #include "networking.h"
 #include "ssdp.h"
+
+#include "grbl/strutils.h"
 
 #if (LWIP_IPV4 && !LWIP_IGMP)
 #error "If you want to use SSDP with IPv4, you have to define LWIP_IGMP=1 in your lwipopts.h"

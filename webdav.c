@@ -36,29 +36,20 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 */
 
-#ifdef ARDUINO
-#include "../driver.h"
-#else
 #include "driver.h"
-#endif
 
 #if WEBDAV_ENABLE && HTTP_ENABLE
 
 #include <stdio.h>
 
-#ifdef ARDUINO
-#include "../grbl/hal.h"
-#include "../grbl/vfs.h"
-#else
-#include "grbl/hal.h"
-#include "grbl/vfs.h"
-#endif
-
 #include "httpd.h"
-#include "strutils.h"
 #include "urlencode.h"
 #include "urldecode.h"
 #include "fs_ram.h"
+
+#include "grbl/hal.h"
+#include "grbl/vfs.h"
+#include "grbl/strutils.h"
 
 typedef enum {
     Resource_NotExist = 0,

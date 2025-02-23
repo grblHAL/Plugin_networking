@@ -24,11 +24,7 @@
   along with Grbl.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifdef ARDUINO
-#include "../driver.h"
-#else
 #include "driver.h"
-#endif
 
 #if WEBUI_ENABLE && SDCARD_ENABLE
 
@@ -39,9 +35,10 @@
 #include <sys/unistd.h>
 #endif
 
-#include "strutils.h"
 #include "http_upload.h"
 #include "multipartparser.h"
+
+#include "grbl/strutils.h"
 
 #include "sdcard/sdcard.h"
 

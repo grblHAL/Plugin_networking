@@ -65,11 +65,7 @@
  * the 'httpd_headers' list.
  */
 
-#ifdef ARDUINO
-#include "../driver.h"
-#else
 #include "driver.h"
-#endif
 
 #if HTTP_ENABLE
 
@@ -93,9 +89,10 @@
 #include "lwip/sys.h"
 #endif /* LWIP_HTTPD_TIMING */
 
-#include "strutils.h"
 #include "urldecode.h"
 #include "networking.h"
+
+#include "grbl/strutils.h"
 
 /**/
 

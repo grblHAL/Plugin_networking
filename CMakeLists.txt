@@ -12,7 +12,6 @@ target_sources(networking INTERFACE
  ${CMAKE_CURRENT_LIST_DIR}/networking.c
  ${CMAKE_CURRENT_LIST_DIR}/sfifo.c
  ${CMAKE_CURRENT_LIST_DIR}/sha1.c
- ${CMAKE_CURRENT_LIST_DIR}/strutils.c
  ${CMAKE_CURRENT_LIST_DIR}/telnetd.c
  ${CMAKE_CURRENT_LIST_DIR}/urldecode.c
  ${CMAKE_CURRENT_LIST_DIR}/urlencode.c

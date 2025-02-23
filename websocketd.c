@@ -36,11 +36,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 */
 
-#ifdef ARDUINO
-#include "../driver.h"
-#else
 #include "driver.h"
-#endif
 
 #if WEBSOCKET_ENABLE
 
@@ -52,11 +48,11 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "base64.h"
 #include "sha1.h"
 #include "utils.h"
-#include "strutils.h"
 #include "websocketd.h"
 
 #include "grbl/grbl.h"
 #include "grbl/protocol.h"
+#include "grbl/strutils.h"
 
 //#define WSDEBUG
 
