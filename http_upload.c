@@ -5,28 +5,28 @@
 
   Part of grblHAL
 
-  Copyright (c) 2019-2022 Terje Io
+  Copyright (c) 2019-2025 Terje Io
 
   Some parts of the code is based on test code by francoiscolas
   https://github.com/francoiscolas/multipart-parser/blob/master/tests.cpp
 
-  Grbl is free software: you can redistribute it and/or modify
+  grblHAL is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
   the Free Software Foundation, either version 3 of the License, or
   (at your option) any later version.
 
-  Grbl is distributed in the hope that it will be useful,
+  grblHAL is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
-  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
   GNU General Public License for more details.
 
   You should have received a copy of the GNU General Public License
-  along with Grbl.  If not, see <http://www.gnu.org/licenses/>.
+  along with grblHAL. If not, see <http://www.gnu.org/licenses/>.
 */
 
 #include "driver.h"
 
-#if WEBUI_ENABLE && SDCARD_ENABLE
+#if FS_ENABLE
 
 #include <stdio.h>
 #include <string.h>

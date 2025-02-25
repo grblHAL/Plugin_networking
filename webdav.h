@@ -36,10 +36,6 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 */
 
-
-#ifndef __WEBDAV_H__
-#define __WEBDAV_H__
+#pragma once
 
 bool webdav_init (void);
-
-#endif

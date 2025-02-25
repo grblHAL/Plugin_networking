@@ -36,13 +36,10 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 */
 
-#ifndef __TCPSTREAM_H__
-#define __TCPSTREAM_H__
+#pragma once
 
 bool telnetd_init (uint16_t port);
 void telnetd_poll (void);
 void telnetd_notify_link_status (bool link_up);
 void telnetd_stop (void);
 void telnetd_close_connections (void);
-
-#endif

@@ -35,8 +35,8 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 */
-#ifndef __SSDP_H__
-#define __SSDP_H__
+
+#pragma once
 
 #ifndef SSDP_LOCATION_DOC
 #define SSDP_LOCATION_DOC "description.xml"
@@ -46,5 +46,3 @@ const char *ssdp_handler_get (http_request_t *request);
 bool ssdp_init (uint16_t httpd_port);
 void ssdp_stop (void);
 const char *ssdp_handler_get (http_request_t *request);
-
-#endif

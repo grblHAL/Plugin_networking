@@ -38,11 +38,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #pragma once
 
-#if defined(ARDUINO)
-#include "../driver.h"
-#else
 #include "driver.h"
-#endif
 
 #if ETHERNET_ENABLE || WIFI_ENABLE
 

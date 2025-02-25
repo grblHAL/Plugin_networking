@@ -4,8 +4,7 @@
 // Part of grblHAL
 //
 
-#ifndef __NETWORKING_UTILS_H__
-#define __NETWORKING_UTILS_H__
+#pragma once
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -25,5 +24,3 @@ bool is_valid_port (uint16_t port);
 bool is_valid_hostname (const char *hostname);
 bool is_valid_ssid (const char *ssid);
 bool is_valid_password (const char *password);
-
-#endif

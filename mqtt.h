@@ -37,8 +37,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 */
 
-#ifndef __MQTT_CLIENT_H__
-#define __MQTT_CLIENT_H__
+#pragma once
 
 typedef void (*on_mqtt_client_connected_ptr)(bool connected);
 typedef bool (*on_mqtt_message_received_ptr)(const char *topic, const void *payload, size_t payload_length);
@@ -54,6 +53,4 @@ bool mqtt_connect (mqtt_settings_t *settings, const char *client_id);
 bool mqtt_publish_message (const char *topic, const void *payload, size_t payload_length, uint8_t qos, bool retain);
 bool mqtt_subscribe_topic (const char *topic, uint8_t qos, on_mqtt_message_received_ptr on_message_received);
 bool mqtt_unsubscribe_topic (const char *topic, on_mqtt_message_received_ptr on_message_received);
-
-#endif
 

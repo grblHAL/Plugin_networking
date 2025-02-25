@@ -36,17 +36,10 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 */
 
-#if defined(ARDUINO)
-#include "../driver.h"
-#include "../grbl/hal.h"
-#include "../grbl/platform.h"
-#include "../grbl/vfs.h"
-#else
 #include "driver.h"
 #include "grbl/hal.h"
 #include "grbl/platform.h"
 #include "grbl/vfs.h"
-#endif
 
 #include <stdlib.h>
 #include <string.h>

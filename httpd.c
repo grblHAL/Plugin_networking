@@ -39,7 +39,7 @@
 /*
  * 2022-08-14: Modified by Terje Io for grblHAL networking.
  * 2022-08-27: Modified by Terje Io for grblHAL VFS
- * 2023-04-11: Modified by Terje Io to improve handling of content encoding
+ * 2025-02-24: Modified by Terje Io to improve handling of content encoding
  */
 
 /**
@@ -146,6 +146,7 @@ typedef struct {
 #define HTTP_HDR_TSV            HTTP_CONTENT_TYPE("text/tsv")
 #define HTTP_HDR_SVG            HTTP_CONTENT_TYPE("image/svg+xml")
 #define HTTP_HDR_GZIP           HTTP_CONTENT_TYPE("application/gzip")
+#define HTTP_HDR_HTMLGZ         HTTP_CONTENT_TYPE_ENCODING("text/html; charset=UTF-8", "gzip")
 #define HTTP_HDR_SVGZ           HTTP_CONTENT_TYPE_ENCODING("image/svg+xml", "gzip")
 
 #define HTTP_HDR_DEFAULT_TYPE   HTTP_CONTENT_TYPE("text/plain")
@@ -334,13 +335,14 @@ void dbg (char *msg, ...)
 typedef struct {
   const char *name;
   u8_t shtml;
+  const char *content_type;
   http_encoding_t encoding;
 } default_filename;
 
 PROGMEM static const default_filename httpd_default_filenames[] = {
-    {"/index.html",    0, HTTPEncoding_None },
-    {"/index.html.gz", 0, HTTPEncoding_GZIP },
-    {"/index.htm",     0, HTTPEncoding_None }
+    {"/index.html",    0, HTTP_HDR_HTML,   HTTPEncoding_None },
+    {"/index.html.gz", 0, HTTP_HDR_HTMLGZ, HTTPEncoding_GZIP },
+    {"/index.htm",     0, HTTP_HDR_HTML,   HTTPEncoding_None }
 };
 
 http_event_t httpd = {0};
@@ -897,6 +899,13 @@ static void set_content_type (http_state_t *hs, const char *uri)
             end = strchr(uri, '\0');
 
         ext_found = (ext = strrchr(uri, '.')) && ext < end;
+
+//        if((ext_found = (ext = strrchr(uri, '.')) && ext < end) && lwip_stricmp(".gz", ext)) {
+//            if(strrchr(ext - 1, '.')) {
+//                end = ext;
+//                ext = strrchr(ext - 1, '.');
+//            }
+//        }
 
         if(end != uri) {
             for (content_type = 0; content_type < NUM_HTTP_HEADERS; content_type++) {
@@ -1788,7 +1797,7 @@ static err_t http_process_request (http_state_t *hs, const char *uri)
 
         case HTTP_Get:
             if(params == NULL) {
-            	bool is_dir;
+                bool is_dir;
                 size_t loop;
                 /* Have we been asked for the default file (in root or a directory) ? */
 #if LWIP_HTTPD_MAX_REQUEST_URI_LEN
@@ -1822,6 +1831,7 @@ static err_t http_process_request (http_state_t *hs, const char *uri)
                         if ((file = vfs_open(file_name, "r")) != NULL) {
                             uri = file_name;
                             hs->request.encoding = httpd_default_filenames[loop].encoding;
+                            hs->response_hdr.string[hs->response_hdr.next++] = httpd_default_filenames[loop].content_type;
                             LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("Opened.\n"));
                             break;
                         }

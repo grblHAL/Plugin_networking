@@ -35,8 +35,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 */
 
-#ifndef __WSSTREAM_H__
-#define __WSSTREAM_H__
+#pragma once
 
 typedef void websocket_t;
 typedef char *(*websocket_on_protocol_select_ptr)(websocket_t *websocket, char *protocols, bool *is_binary);
@@ -63,5 +62,3 @@ bool websocket_send_frame (websocket_t *websocket, const void *data, size_t size
 bool websocket_broadcast_frame (const void *data, size_t size, bool is_binary);
 bool websocket_set_stream_flags (websocket_t *session, io_stream_state_t stream_flags);
 bool websocket_claim_stream (websocket_t *session);
-
-#endif

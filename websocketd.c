@@ -1,7 +1,7 @@
 //
 // websocketd.c - lwIP websocket daemon implementation
 //
-// v2.8 / 2025-02-15 / Io Engineering / Terje
+// v2.8 / 2025-02-25 / Io Engineering / Terje
 //
 
 /*
@@ -455,6 +455,35 @@ static const io_stream_t *claim_stream (uint32_t baud_rate)
 
     return &stream;
 }
+
+static const io_stream_t *claim_webui_stream (uint32_t baud_rate)
+{
+    static const io_stream_t stream = {
+        .type = StreamType_WebSocket,
+        .is_connected = is_connected,
+        .state.webui_connected = On,
+        .read = streamGetC,
+        .write = streamWriteS,
+        .write_n = streamWrite,
+        .write_char = streamPutC,
+        .enqueue_rt_command = streamEnqueueRtCommand,
+        .get_rx_buffer_free = streamRxFree,
+        .reset_write_buffer = streamTxFlush,
+        .reset_read_buffer = streamRxFlush,
+        .cancel_read_buffer = websocketd_RxCancel,
+        .suspend_read = streamSuspendInput,
+        .set_enqueue_rt_handler = streamSetRtHandler
+    };
+
+    if(ws_streams[0].prop.flags.claimed)
+        return NULL;
+
+    if(baud_rate != 0)
+        ws_streams[0].prop.flags.claimed = On;
+
+    return &stream;
+}
+
 
 bool websocket_send_frame (websocket_t *session, const void *data, size_t size, bool is_binary)
 {
@@ -949,7 +978,9 @@ bool websocket_claim_stream (websocket_t *websocket)
     const io_stream_t *stream;
     ws_sessiondata_t *session = (ws_sessiondata_t *)websocket;
 
-    if(session && session->magic == WEBSOCKETD_MAGIC && (stream = claim_stream(0))) {
+    if(session &&
+        session->magic == WEBSOCKETD_MAGIC &&
+         (stream = session->stream_state.webui_connected ? claim_webui_stream(0) : claim_stream(0))) {
 
         if(hal.stream.type == StreamType_WebSocket || !session->stream_state.connected)
             return session->stream != NULL;
@@ -959,7 +990,7 @@ bool websocket_claim_stream (websocket_t *websocket)
         if(hal.stream.type == StreamType_WebSocket || hal.stream.state.webui_connected) {
             session->stream = stream;
             streambuffers.session = session;
-            hal.stream.state.webui_connected = session->stream_state.webui_connected;
+//            hal.stream.state.webui_connected = session->stream_state.webui_connected;
         }
 
         ws_streams[0].state.connected = true;

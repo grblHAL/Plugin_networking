@@ -9,11 +9,7 @@
  *
  */
 
-#if defined(ARDUINO)
-#include "../driver.h"
-#else
 #include "driver.h"
-#endif
 
 #if FTP_ENABLE
 

@@ -40,17 +40,9 @@
  * Based on this version: https://github.com/toelke/lwip-ftpd
  */
 
-#ifdef ARDUINO
-#include "../driver.h"
-#include "../grbl/vfs.h"
-#include "../grbl/stream_file.h"
-#else
 #include "driver.h"
-#include "grbl/vfs.h"
-#include "grbl/stream_file.h"
-#endif
 
-#if FTP_ENABLE
+#if FTP_ENABLE && FS_ENABLE
 
 #include <stdio.h>
 #include <stdarg.h>
@@ -65,7 +57,13 @@
 #include "ftpd.h"
 #include "sfifo.h"
 
-#include "../sdcard/sdcard.h"
+#include "grbl/vfs.h"
+#include "grbl/stream_file.h"
+#include "grbl/platform.h"
+
+#if FS_ENABLE & FS_SDCARD
+#include "sdcard/sdcard.h"
+#endif
 
 #ifndef FTPD_POLL_INTERVAL
 #define FTPD_POLL_INTERVAL 4
@@ -1277,7 +1275,7 @@ bool ftpd_init (uint16_t port)
 
         pcb = tcp_listen(pcb);
         tcp_accept(pcb, ftpd_msgaccept);
-#if SDCARD_ENABLE
+#if FS_ENABLE & FS_SDCARD
         sdcard_getfs(); // try to mount SD card
 #endif
     }
@@ -1285,4 +1283,4 @@ bool ftpd_init (uint16_t port)
     return err == ERR_OK;
 }
 
-#endif
+#endif // FTP_ENABLE
