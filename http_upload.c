@@ -26,7 +26,7 @@
 
 #include "driver.h"
 
-#if FS_ENABLE
+#if HTTP_ENABLE && FS_ENABLE
 
 #include <stdio.h>
 #include <string.h>
