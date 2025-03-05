@@ -96,39 +96,38 @@ static network_info_t *get_info (const char *interface)
 {
     static network_info_t info;
 
-    memcpy(&info.status, &network, sizeof(network_settings_t));
+    if(interface == if_name) {
 
-    strcpy(info.status.ip, IPAddress);
+        memcpy(&info.status, &network, sizeof(network_settings_t));
 
-    if(info.status.ip_mode == IpMode_DHCP) {
-        *info.status.gateway = '\0';
-        *info.status.mask = '\0';
-    }
+        info.interface = (const char *)if_name;
+        info.is_ethernet = true;
+        info.link_up = network_status.link_up;
+        info.mbps = 100;
+        info.status.services = services;
+        *info.mac = *info.status.ip = *info.status.gateway = *info.status.mask = '\0';
 
-    info.interface = (const char *)if_name;
-    info.is_ethernet = true;
-    info.link_up = network_status.link_up;
-    info.mbps = 100;
-    info.status.services = services;
-    *info.mac = '\0';
+        struct netif *netif = netif_default; // netif_get_by_index(0);
 
-    struct netif *netif = netif_default; // netif_get_by_index(0);
+        if(netif) {
 
-    if(netif) {
+            if(network_status.link_up) {
+                strcpy(info.status.ip, IPAddress);
+                ip4addr_ntoa_r(netif_ip_gw4(netif), info.status.gateway, IP4ADDR_STRLEN_MAX);
+                ip4addr_ntoa_r(netif_ip_netmask4(netif), info.status.mask, IP4ADDR_STRLEN_MAX);
+            }
 
-        if(network_status.link_up) {
-            ip4addr_ntoa_r(netif_ip_gw4(netif), info.status.gateway, IP4ADDR_STRLEN_MAX);
-            ip4addr_ntoa_r(netif_ip_netmask4(netif), info.status.mask, IP4ADDR_STRLEN_MAX);
+            strcpy(info.mac, networking_mac_to_string(netif->hwaddr));
         }
 
-        strcpy(info.mac, networking_mac_to_string(netif->hwaddr));
-    }
-
 #if MQTT_ENABLE
-    networking_make_mqtt_clientid(info.mac, info.mqtt_client_id);
+        networking_make_mqtt_clientid(info.mac, info.mqtt_client_id);
 #endif
 
-    return &info;
+        return &info;
+    }
+
+    return NULL;
 }
 
 static void report_options (bool newopt)
@@ -155,33 +154,36 @@ static void report_options (bool newopt)
 #endif
     } else {
 
-        network_info_t *network = get_info(NULL);
+        network_info_t *network;
 
-        hal.stream.write("[WIZCHIP:");
-        hal.stream.write(_WIZCHIP_ID_);
-        hal.stream.write("]" ASCII_EOL);
+        if((network = get_info(if_name))) {
 
-        hal.stream.write("[MAC:");
-        hal.stream.write(network->mac);
-        hal.stream.write("]" ASCII_EOL);
-
-        hal.stream.write("[IP:");
-        hal.stream.write(network->status.ip);
-        hal.stream.write("]" ASCII_EOL);
-
-        if(active_stream == StreamType_Telnet || active_stream == StreamType_WebSocket) {
-            hal.stream.write("[NETCON:");
-            hal.stream.write(active_stream == StreamType_Telnet ? "Telnet" : "Websocket");
+            hal.stream.write("[WIZCHIP:");
+            hal.stream.write(_WIZCHIP_ID_);
             hal.stream.write("]" ASCII_EOL);
-        }
+
+            hal.stream.write("[MAC:");
+            hal.stream.write(network->mac);
+            hal.stream.write("]" ASCII_EOL);
+
+            hal.stream.write("[IP:");
+            hal.stream.write(network->status.ip);
+            hal.stream.write("]" ASCII_EOL);
+
+            if(active_stream == StreamType_Telnet || active_stream == StreamType_WebSocket) {
+                hal.stream.write("[NETCON:");
+                hal.stream.write(active_stream == StreamType_Telnet ? "Telnet" : "Websocket");
+                hal.stream.write("]" ASCII_EOL);
+            }
 
 #if MQTT_ENABLE
-        if(*network->mqtt_client_id) {
-            hal.stream.write("[MQTT CLIENTID:");
-            hal.stream.write(network->mqtt_client_id);
-            hal.stream.write(mqtt_connected ? "]" ASCII_EOL : " (offline)]" ASCII_EOL);
-        }
+            if(*network->mqtt_client_id) {
+                hal.stream.write("[MQTT CLIENTID:");
+                hal.stream.write(network->mqtt_client_id);
+                hal.stream.write(mqtt_connected ? "]" ASCII_EOL : " (offline)]" ASCII_EOL);
+            }
 #endif
+        }
     }
 }
 
@@ -246,7 +248,7 @@ static void netif_status_callback (struct netif *netif)
   #endif
   #if SSDP_ENABLE
         if(network.services.ssdp && !services.ssdp)
-            services.ssdp = ssdp_init(network.http_port);
+            services.ssdp = ssdp_init(get_info(if_name));
   #endif
     }
 #endif
@@ -283,7 +285,7 @@ static void netif_status_callback (struct netif *netif)
 
 #if MQTT_ENABLE
     if(!mqtt_connected)
-        mqtt_connect(&network.mqtt, get_info(NULL)->mqtt_client_id);
+        mqtt_connect(get_info(if_name), &network.mqtt);
 #endif
 
 #if MODBUS_ENABLE & MODBUS_TCP_ENABLED
@@ -301,9 +303,15 @@ static void link_status_callback (struct netif *netif)
     bool isLinkUp = netif_is_link_up(netif);
 
     if(isLinkUp != network_status.link_up) {
+
         if(!(network_status.link_up = isLinkUp))
             network_status.ip_aquired = Off;
+
         status_event_publish((network_flags_t){ .link_up = On, .ip_aquired = !isLinkUp });
+
+        if(network_status.link_up && network.ip_mode == IpMode_Static)
+            netif_status_callback(netif);
+
 #if TELNET_ENABLE
         telnetd_notify_link_status(network_status.link_up);
 #endif
@@ -312,7 +320,7 @@ static void link_status_callback (struct netif *netif)
 
 static void link_check (void *data)
 {
-    uint8_t link_ok = false;
+    int8_t link_ok = false;
 
     ctlwizchip(CW_GET_PHYLINK, &link_ok);
 
@@ -460,13 +468,19 @@ bool enet_start (void)
             netif_set_link_callback(netif_default, link_status_callback);
             netif_set_status_callback(netif_default, netif_status_callback);
 
-            link_status_callback(netif_default);
-            netif_status_callback(netif_default);
-
             if(socket(SOCKET_MACRAW, Sn_MR_MACRAW, network.telnet_port, 0x00) < 0)
                 return false;
 
-            uint8_t link_ok;
+            netif_set_up(netif_default);
+            netif_index_to_name(1, if_name);
+#if LWIP_NETIF_HOSTNAME
+            netif_set_hostname(netif_default, network.hostname);
+#endif
+
+            network_status.interface_up = On;
+            status_event_publish((network_flags_t){ .interface_up = On });
+
+            int8_t link_ok;
             if(ctlwizchip(CW_GET_PHYLINK, &link_ok) == -1)
                 return false;
 
@@ -475,27 +489,14 @@ bool enet_start (void)
             else
                 task_add_delayed(link_check, NULL, LINK_CHECK_INTERVAL);
 
-            netif_set_up(netif_default);
-
-            netif_index_to_name(1, if_name);
-
-            network_status.interface_up = On;
-
-            status_event_publish((network_flags_t){ .interface_up = On });
-
             wizchip_gpio_interrupt_initialize(SOCKET_MACRAW, irq_handler);
 
-#if LWIP_NETIF_HOSTNAME
-            netif_set_hostname(netif_default, network.hostname);
-#endif
             if(network.ip_mode == IpMode_DHCP)
                 dhcp_start(netif_default);
 
 #if MDNS_ENABLE || SSDP_ENABLE || LWIP_IGMP
-
 //            if(network.services.mdns || network.services.ssdp)
 //                netif_default->flags |= NETIF_FLAG_IGMP;
-
 #endif
             task_add_systick(enet_poll, NULL);
 

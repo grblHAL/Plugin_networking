@@ -1,12 +1,12 @@
 //
 // ssdp.h - Simple Service Discovery Protocol
 //
-// v0.1 / 2022-09-04 / Io Engineering / Terje
+// v0.2 / 2025-03-04 / Io Engineering / Terje
 //
 
 /*
 
-Copyright (c) 2022, Terje Io
+Copyright (c) 2022-2025, Terje Io
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -43,6 +43,6 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #endif
 
 const char *ssdp_handler_get (http_request_t *request);
-bool ssdp_init (uint16_t httpd_port);
+bool ssdp_init (network_info_t *network);
 void ssdp_stop (void);
 const char *ssdp_handler_get (http_request_t *request);

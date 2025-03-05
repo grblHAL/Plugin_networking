@@ -1,12 +1,12 @@
 //
 // mqtt.c - MQTT client API for grblHAL
 //
-// v0.1 / 2023-02-12 / Io Engineering / Terje
+// v0.2 / 2025-03-04 / Io Engineering / Terje
 //
 
 /*
 
-Copyright (c) 2023, Terje Io
+Copyright (c) 2023-2025, Terje Io
 
 All rights reserved.
 
@@ -49,7 +49,7 @@ typedef struct {
 
 extern mqtt_events_t mqtt_events;
 
-bool mqtt_connect (mqtt_settings_t *settings, const char *client_id);
+bool mqtt_connect (network_info_t *network, mqtt_settings_t *settings);
 bool mqtt_publish_message (const char *topic, const void *payload, size_t payload_length, uint8_t qos, bool retain);
 bool mqtt_subscribe_topic (const char *topic, uint8_t qos, on_mqtt_message_received_ptr on_message_received);
 bool mqtt_unsubscribe_topic (const char *topic, on_mqtt_message_received_ptr on_message_received);

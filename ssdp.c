@@ -1,12 +1,12 @@
 //
 // ssdp.c - Simple Service Discovery Protocol
 //
-// v0.1 / 2022-10-19 / Io Engineering / Terje
+// v0.2 / 2025-03-04 / Io Engineering / Terje
 //
 
 /*
 
-Copyright (c) 2022, Terje Io
+Copyright (c) 2022-2025, Terje Io
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -137,6 +137,7 @@ PROGMEM static const char *xml_doc =
     "</device>"
     "</root>";
 
+static hostname_t hostname;
 static char uuid[37], location[22] = "";
 static ssdp_msg_t request;
 static struct udp_pcb *ssdp_pcb = NULL;
@@ -145,13 +146,12 @@ const char *ssdp_handler_get (http_request_t *request)
 {
     char xml[800];
     vfs_file_t *file = NULL;
-    network_info_t *network = networking.get_info(NULL);
     char *mfg_url = hal.driver_url &&  hal.board_url ? hal.driver_url : GRBL_URL,
          *model_url = hal.board_url ? hal.board_url : (hal.driver_url ? hal.driver_url : GRBL_URL);
 
     if(*location && (file = vfs_open("/ram/qry.xml", "w"))) {
 
-        sprintf(xml, xml_doc, network->status.hostname, mfg_url, hal.info, hal.board ? hal.board : "", GRBL_VERSION, hal.info, model_url, GRBL_BUILD, uuid);
+        sprintf(xml, xml_doc, hostname, mfg_url, hal.info, hal.board ? hal.board : "", GRBL_VERSION, hal.info, model_url, GRBL_BUILD, uuid);
 
         vfs_puts(xml, file);
         vfs_close(file);
@@ -325,12 +325,12 @@ void ssdp_stop (void)
     }
 }
 
-bool ssdp_init (uint16_t httpd_port)
+bool ssdp_init (network_info_t *network)
 {
     err_t res = ERR_MEM;
     struct netif *netif = netif_default; // netif_get_by_index(0);
 
-    if((ssdp_pcb = udp_new_ip_type(IPADDR_TYPE_ANY))) {
+    if(network && network->status.services.http && (ssdp_pcb = udp_new_ip_type(IPADDR_TYPE_ANY))) {
 
 #if LWIP_MULTICAST_TX_OPTIONS
         udp_set_multicast_ttl(ssdp_pcb, SSDP_TTL);
@@ -352,10 +352,9 @@ bool ssdp_init (uint16_t httpd_port)
 
             if(res == ERR_OK) {
 
-                network_info_t *network = networking.get_info(NULL);
-
                 srand(hal.get_elapsed_ticks());
-                sprintf(location, "%s:%d", network->status.ip, httpd_port);
+                strcpy(hostname, network->status.hostname);
+                sprintf(location, "%s:%d", network->status.ip, network->status.http_port);
                 sprintf(uuid, "06945d64-43bc-11ed-b878-0242%02x%02x%02x%02x", netif->hwaddr[2], netif->hwaddr[3], netif->hwaddr[4], netif->hwaddr[5]);
 
                 sys_timeout(5 * 1000UL, ssdp_advertise_root, NULL);

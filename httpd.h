@@ -100,6 +100,7 @@ typedef struct http_state http_state_t;
 
 typedef struct http_request {
     http_state_t *handle;
+    ip_addr_t server_ip;
     http_encoding_t encoding;
     void *private_data;
     err_t (*post_receive_data)(struct http_request *request, struct pbuf *p);

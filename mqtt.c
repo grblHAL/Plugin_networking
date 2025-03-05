@@ -1,12 +1,12 @@
 //
 // mqtt.c - MQTT client API for grblHAL
 //
-// v0.1 / 2023-02-12 / Io Engineering / Terje
+// v0.2 / 2025-03-04 / Io Engineering / Terje
 //
 
 /*
 
-Copyright (c) 2023, Terje Io
+Copyright (c) 2023-2025, Terje Io
 Copyright (c) 2017, Erich Styger - some code lifted from https://dzone.com/articles/mqtt-with-lwip-and-the-nxp-frdm-k64f
 
 All rights reserved.
@@ -175,15 +175,17 @@ bool mqtt_publish_message (const char *topic, const void *payload, size_t payloa
     return mqtt_publish(client, topic, payload, (u16_t)payload_length, (u8_t)qos, (u8_t)retain, NULL, NULL) == ERR_OK;
 }
 
-bool mqtt_connect (mqtt_settings_t *settings, const char *client_id)
+bool mqtt_connect (network_info_t *network, mqtt_settings_t *settings)
 {
-    cfg = settings;
-    client_info.client_id = client_id;
-    client_info.client_user = cfg->user;
-    client_info.client_pass = cfg->password;
+    if(network) {
+        cfg = settings;
+        client_info.client_id = network->mqtt_client_id;
+        client_info.client_user = cfg->user;
+        client_info.client_pass = cfg->password;
 
-    if(!connecting && cfg->port > 0 && !networking_ismemnull(cfg->ip, sizeof(cfg->ip)))
-        connecting = do_connect();
+        if(!connecting && cfg->port > 0 && !networking_ismemnull(cfg->ip, sizeof(cfg->ip)))
+            connecting = do_connect();
+    }
 
     return connecting;
 }

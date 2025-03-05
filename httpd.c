@@ -1793,6 +1793,8 @@ static err_t http_process_request (http_state_t *hs, const char *uri)
             *params = '?';
     }
 
+    hs->request.server_ip = hs->pcb->local_ip;
+
     switch(hs->method) {
 
         case HTTP_Get:
