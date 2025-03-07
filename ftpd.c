@@ -33,7 +33,7 @@
 
 /*
  * 2021-12-28: Modified by Terje Io for grblHAL networking
- * 2022-08-25: Modified by Terje Io for grblHAL VFS
+ * 2025-03-06: Modified by Terje Io for grblHAL VFS
  */
 
 /*
@@ -105,7 +105,7 @@ void dbg (char *msg, ...)
 #define ENODEV 3
 #endif
 
-//PROGMEM static const char *msg110 = "110 MARK %s = %s.";
+//PROGMEM static char const msg110[] = "110 MARK %s = %s.";
 /*
          110 Restart marker reply.
              In this case, the text is exact and not left to the
@@ -115,95 +115,95 @@ void dbg (char *msg, ...)
              server's equivalent marker (note the spaces between markers
              and "=").
 */
-//PROGMEM static const char *msg120 = "120 Service ready in nnn minutes.";
-//PROGMEM static const char *msg125 = "125 Data connection already open; transfer starting.";
-PROGMEM static const char *msg150 = "150 File status okay; about to open data connection.";
-PROGMEM static const char *msg150recv = "150 Opening BINARY mode data connection for %s (%i bytes).";
-PROGMEM static const char *msg150stor = "150 Opening BINARY mode data connection for %s.";
-PROGMEM static const char *msg200 = "200 Command okay.";
-//PROGMEM static const char *msg202 = "202 Command not implemented, superfluous at this site.";
-//PROGMEM static const char *msg211 = "211 System status, or system help reply.";
-//PROGMEM static const char *msg212 = "212 Directory status.";
-//PROGMEM static const char *msg213 = "213 File status.";
-//PROGMEM static const char *msg214 = "214 %s.";
+PROGMEM static char const msg120[] = "120 Service ready in nnn minutes.";
+//PROGMEM static char const msg125[] = "125 Data connection already open; transfer starting.";
+PROGMEM static char const msg150[] = "150 File status okay; about to open data connection.";
+PROGMEM static char const msg150recv[] = "150 Opening BINARY mode data connection for %s (%i bytes).";
+PROGMEM static char const msg150stor[] = "150 Opening BINARY mode data connection for %s.";
+PROGMEM static char const msg200[] = "200 Command okay.";
+//PROGMEM static char const msg202[] = "202 Command not implemented, superfluous at this site.";
+//PROGMEM static char const msg211[] = "211 System status, or system help reply.";
+//PROGMEM static char const msg212[] = "212 Directory status.";
+//PROGMEM static char const msg213[] = "213 File status.";
+//PROGMEM static char const msg214[] = "214 %s.";
 /*
              214 Help message.
              On how to use the server or the meaning of a particular
              non-standard command.  This reply is useful only to the
              human user.
 */
-PROGMEM static const char *msg214SYST = "214 %s system type.";
+PROGMEM static char const msg214SYST[] = "214 %s system type.";
 /*
          215 NAME system type.
              Where NAME is an official system name from the list in the
              Assigned Numbers document.
 */
-PROGMEM static const char *msg220 = "220 lwIP FTP Server ready.";
+PROGMEM static char const msg220[] = "220 lwIP FTP Server ready.";
 /*
          220 Service ready for new user.
 */
-PROGMEM static const char *msg221 = "221 Goodbye.";
+PROGMEM static char const msg221[] = "221 Goodbye.";
 /*
          221 Service closing control connection.
              Logged out if appropriate.
 */
-//PROGMEM static const char *msg225 = "225 Data connection open; no transfer in progress.";
-PROGMEM static const char *msg226 = "226 Closing data connection.";
+//PROGMEM static char const msg225[] = "225 Data connection open; no transfer in progress.";
+PROGMEM static char const msg226[] = "226 Closing data connection.";
 /*
              Requested file action successful (for example, file
              transfer or file abort).
 */
-PROGMEM static const char *msg227 = "227 Entering Passive Mode (%i,%i,%i,%i,%i,%i).";
+PROGMEM static char const msg227[] = "227 Entering Passive Mode (%i,%i,%i,%i,%i,%i).";
 /*
          227 Entering Passive Mode (h1,h2,h3,h4,p1,p2).
 */
-PROGMEM static const char *msg230 = "230 User logged in, proceed.";
-PROGMEM static const char *msg250 = "250 Requested file action okay, completed.";
-PROGMEM static const char *msg257PWD = "257 \"%s\" is current directory.";
-PROGMEM static const char *msg257 = "257 \"%s\" created.";
+PROGMEM static char const msg230[] = "230 User logged in, proceed.";
+PROGMEM static char const msg250[] = "250 Requested file action okay, completed.";
+PROGMEM static char const msg257PWD[] = "257 \"%s\" is current directory.";
+PROGMEM static char const msg257[] = "257 \"%s\" created.";
 /*
          257 "PATHNAME" created.
 */
-PROGMEM static const char *msg331 = "331 User name okay, need password.";
-//PROGMEM static const char *msg332 = "332 Need account for login.";
-PROGMEM static const char *msg350 = "350 Requested file action pending further information.";
-//PROGMEM static const char *msg421 = "421 Service not available, closing control connection.";
+PROGMEM static char const msg331[] = "331 User name okay, need password.";
+//PROGMEM static char const msg332[] = "332 Need account for login.";
+PROGMEM static char const msg350[] = "350 Requested file action pending further information.";
+//PROGMEM static char const msg421[] = "421 Service not available, closing control connection.";
 /*
              This may be a reply to any command if the service knows it
              must shut down.
 */
-//PROGMEM static const char *msg425 = "425 Can't open data connection.";
-//PROGMEM static const char *msg426 = "426 Connection closed; transfer aborted.";
-PROGMEM static const char *msg450 = "450 Requested file action not taken.";
+PROGMEM static char const msg425[] = "425 Can't open data connection.";
+//PROGMEM static char const msg426[] = "426 Connection closed; transfer aborted.";
+PROGMEM static char const msg450[] = "450 Requested file action not taken.";
 /*
              File unavailable (e.g., file busy).
 */
-PROGMEM static const char *msg451 = "451 Requested action aborted: local error in processing.";
-PROGMEM static const char *msg452 = "452 Requested action not taken.";
+PROGMEM static char const msg451[] = "451 Requested action aborted: local error in processing.";
+PROGMEM static char const msg452[] = "452 Requested action not taken.";
 /*
              Insufficient storage space in system.
 */
-//PROGMEM static const char *msg500 = "500 Syntax error, command unrecognized.";
+//PROGMEM static char const msg500[] = "500 Syntax error, command unrecognized.";
 /*
              This may include errors such as command line too long.
 */
-PROGMEM static const char *msg501 = "501 Syntax error in parameters or arguments.";
-PROGMEM static const char *msg502 = "502 Command not implemented.";
-PROGMEM static const char *msg503 = "503 Bad sequence of commands.";
-//PROGMEM static const char *msg504 = "504 Command not implemented for that parameter.";
-//PROGMEM static const char *msg530 = "530 Not logged in.";
-//PROGMEM static const char *msg532 = "532 Need account for storing files.";
-PROGMEM static const char *msg550 = "550 Requested action not taken.";
+PROGMEM static char const msg501[] = "501 Syntax error in parameters or arguments.";
+PROGMEM static char const msg502[] = "502 Command not implemented.";
+PROGMEM static char const msg503[] = "503 Bad sequence of commands.";
+//PROGMEM static char const msg504[] = "504 Command not implemented for that parameter.";
+//PROGMEM static char const msg530[] = "530 Not logged in.";
+//PROGMEM static char const msg532[] = "532 Need account for storing files.";
+PROGMEM static char const msg550[] = "550 Requested action not taken.";
 /*
              File unavailable (e.g., file not found, no access).
 */
-//PROGMEM static const char *msg551 = "551 Requested action aborted: page type unknown.";
-//PROGMEM static const char *msg552 = "552 Requested file action aborted.";
+//PROGMEM static char const msg551[] = "551 Requested action aborted: page type unknown.";
+//PROGMEM static char const msg552[] = "552 Requested file action aborted.";
 /*
              Exceeded storage allocation (for current directory or
              dataset).
 */
-//PROGMEM static const char *msg553 = "553 Requested action not taken.";
+//PROGMEM static char const msg553[] = "553 Requested action not taken.";
 /*
              File name not allowed.
 */
@@ -271,6 +271,10 @@ static struct {
     struct tcp_pcb *pcb;
 } poll;
 #endif
+
+static bool fs_mounted = false;
+static on_vfs_mount_ptr on_vfs_mount;
+static on_vfs_unmount_ptr on_vfs_unmount;
 
 static void send_msg (struct tcp_pcb *pcb, ftpd_msgstate_t *fsm, const char *msg, ...);
 
@@ -407,6 +411,9 @@ static void send_next_directory (ftpd_datastate_t *fsd, struct tcp_pcb *pcb, int
 
     while (1) {
         if (fsd->vfs_dirent == NULL)
+            fsd->vfs_dirent = fs_mounted ? vfs_readdir(fsd->vfs_dir) : NULL;
+
+        while(fsd->vfs_dirent && fsd->vfs_dirent->st_mode.hidden)
             fsd->vfs_dirent = vfs_readdir(fsd->vfs_dir);
 
         if (fsd->vfs_dirent) {
@@ -443,9 +450,16 @@ static void send_next_directory (ftpd_datastate_t *fsd, struct tcp_pcb *pcb, int
                 else
                     len = sprintf(buffer, "-rw-rw-rw-   1 user     ftp  %11" UINT32SFMT " %s %02i %5i %s\r\n", (uint32_t)st.st_size, month_table[s_time->tm_mon], s_time->tm_mday, s_time->tm_year + 1900, fsd->vfs_dirent->name);
 
-                if (st.st_mode.directory)
+                if(st.st_mode.directory) {
                     buffer[0] = 'd';
-                if (sfifo_space(&fsd->fifo) < len) {
+                    if(st.st_mode.system)
+                        buffer[9] = 't';
+                }
+
+                if(st.st_mode.read_only)
+                    buffer[2] = buffer[5] = buffer[8] = '-';
+
+                if(sfifo_space(&fsd->fifo) < len) {
                     send_data(pcb, fsd);
                     return;
                 }
@@ -763,6 +777,55 @@ static void cmd_noop (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *fsm)
     send_msg(pcb, fsm, msg200);
 }
 
+static void cmd_site (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *fsm)
+{
+    const char *msg = msg502;
+
+    if(arg && !strncmp(arg, "CHMOD ", 6)) {
+
+        char *access = &arg[5], *filename = NULL;
+
+        msg = msg450;
+
+        while(*access && *access == ' ')
+            access++;
+
+        if(*access) {
+
+            filename = access;
+
+            while(*filename && *filename != ' ')
+                filename++;
+
+            if(*filename)
+                *filename++ = '\0';
+
+            while(*filename && *filename == ' ')
+                filename++;
+        }
+
+        if(filename && *filename) {
+
+            vfs_st_mode_t mode = {};
+
+            if(strlen(access) == 4)
+                access++;
+
+            *access -= '0';
+
+// if strlen(access) == 4 first character is sticky bit.
+//            mode.hidden = (*access & 0b100) == 0; // R
+            mode.read_only = (*access & 0b010) == 0; // W
+//            mode.system = (*access & 0b001) == 0; // X
+
+            if(vfs_chmod(filename, mode, (vfs_st_mode_t){ .read_only = On }) == 0)
+                msg = msg200;
+        }
+    }
+
+    send_msg(pcb, fsm, msg);
+}
+
 static void cmd_syst (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *fsm)
 {
     send_msg(pcb, fsm, msg214SYST, "UNIX");
@@ -973,36 +1036,38 @@ static void cmd_dele (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *fsm)
 typedef struct {
     char const *const cmd;
     void (*func) (char *arg, struct tcp_pcb * pcb, ftpd_msgstate_t * fsm);
-    bool check_busy;
+    const char *msg;
+    uint8_t check_busy :1, check_fs: 1;
 } ftpd_command_t;
 
-static const ftpd_command_t ftpd_commands[] = {
-    {"USER", cmd_user, 0},
-    {"PASS", cmd_pass, 0},
-    {"PORT", cmd_port, 0},
-    {"QUIT", cmd_quit, 0},
-    {"CWD",  cmd_cwd,  1},
-    {"CDUP", cmd_cdup, 1},
-    {"PWD",  cmd_pwd,  0},
-    {"XPWD", cmd_pwd,  0},
-    {"NLST", cmd_nlst, 1},
-    {"LIST", cmd_list, 1},
-    {"RETR", cmd_retr, 1},
-    {"STOR", cmd_stor, 1},
-    {"NOOP", cmd_noop, 0},
-    {"SYST", cmd_syst, 0},
-    {"ABOR", cmd_abrt, 0},
-    {"TYPE", cmd_type, 0},
-    {"MODE", cmd_mode, 0},
-    {"RNFR", cmd_rnfr, 1},
-    {"RNTO", cmd_rnto, 1},
-    {"MKD",  cmd_mkd,  1},
-    {"XMKD", cmd_mkd,  1},
-    {"RMD",  cmd_rmd,  1},
-    {"XRMD", cmd_rmd,  1},
-    {"DELE", cmd_dele, 1},
-    {"PASV", cmd_pasv, 0},
-    {NULL,   NULL,     0}
+PROGMEM static const ftpd_command_t ftpd_commands[] = {
+    { "USER", cmd_user },
+    { "PASS", cmd_pass },
+    { "PORT", cmd_port },
+    { "QUIT", cmd_quit },
+    { "CWD",  cmd_cwd,  .check_busy = 1, .check_fs = 0, .msg = msg120 },
+    { "CDUP", cmd_cdup, .check_busy = 1, .check_fs = 1, .msg = msg120 },
+    { "PWD",  cmd_pwd },
+    { "XPWD", cmd_pwd },
+    { "NLST", cmd_nlst, .check_busy = 1, .check_fs = 0, .msg = msg120 },
+    { "LIST", cmd_list, .check_busy = 1, .check_fs = 0, .msg = msg120 },
+    { "RETR", cmd_retr, .check_busy = 1, .check_fs = 1, .msg = msg425 },
+    { "STOR", cmd_stor, .check_busy = 1, .check_fs = 1, .msg = msg450 },
+    { "NOOP", cmd_noop },
+    { "SYST", cmd_syst },
+    { "ABOR", cmd_abrt },
+    { "TYPE", cmd_type },
+    { "MODE", cmd_mode },
+    { "RNFR", cmd_rnfr, .check_busy = 1, .check_fs = 1, .msg = msg450 },
+    { "RNTO", cmd_rnto, .check_busy = 1, .check_fs = 1, .msg = msg450 },
+    { "MKD",  cmd_mkd,  .check_busy = 1, .check_fs = 1, .msg = msg450 },
+    { "XMKD", cmd_mkd,  .check_busy = 1, .check_fs = 1, .msg = msg450 },
+    { "RMD",  cmd_rmd,  .check_busy = 1, .check_fs = 1, .msg = msg450 },
+    { "XRMD", cmd_rmd,  .check_busy = 1, .check_fs = 1, .msg = msg450 },
+    { "DELE", cmd_dele, .check_busy = 1, .check_fs = 1, .msg = msg450 },
+    { "PASV", cmd_pasv },
+    { "SITE", cmd_site, .check_busy = 1, .check_fs = 1, .msg = msg450 },
+    { NULL }
 };
 
 static void send_msgdata (struct tcp_pcb *pcb, ftpd_msgstate_t *fsm)
@@ -1167,8 +1232,10 @@ static err_t ftpd_msgrecv (void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t
 
                 pt = strlen(fsm->cmd.text) < (strlen(cmd) + 1) ? "" :  &fsm->cmd.text[strlen(cmd) + 1];
 
-                if (ftpd_cmd->func) {
-                    if(ftpd_cmd->check_busy && stream_is_file())
+                if(ftpd_cmd->func) {
+                    if(ftpd_cmd->check_fs && !fs_mounted)
+                        send_msg(pcb, fsm, ftpd_cmd->msg);
+                    else if(ftpd_cmd->check_busy && stream_is_file())
                         send_msg(pcb, fsm, msg452);
                     else
                         ftpd_cmd->func(pt, pcb, fsm);
@@ -1264,6 +1331,18 @@ void ftpd_poll (void)
 #endif
 }
 
+static void onMount (const char *path, const vfs_t *fs, vfs_st_mode_t mode)
+{
+    if(path[0] == '/' && path[1] == '\0')
+        fs_mounted = !mode.hidden;
+}
+
+static void onUnmount (const char *path)
+{
+    if(path[0] == '/' && path[1] == '\0')
+        fs_mounted = false;
+}
+
 bool ftpd_init (uint16_t port)
 {
     err_t err;
@@ -1275,9 +1354,18 @@ bool ftpd_init (uint16_t port)
 
         pcb = tcp_listen(pcb);
         tcp_accept(pcb, ftpd_msgaccept);
+
+        on_vfs_mount = vfs.on_mount;
+        vfs.on_mount = onMount;
+
+        on_vfs_unmount = vfs.on_unmount;
+        vfs.on_unmount = onUnmount;
+
 #if FS_ENABLE & FS_SDCARD
         sdcard_getfs(); // try to mount SD card
 #endif
+
+        fs_mounted = !vfs_get_drive("/")->mode.hidden;
     }
 
     return err == ERR_OK;
