@@ -220,7 +220,7 @@ enum ftpd_state_e {
     FTPD_QUIT
 };
 
-PROGMEM static const char *month_table[12] = {
+static const char *month_table[] = {
     "Jan",
     "Feb",
     "Mar",
