@@ -90,7 +90,7 @@ static const sessiondata_t defaultSettings =
 };
 
 static tcp_server_t telnet_server;
-static sessiondata_t streamSession;
+static  sessiondata_t streamSession;
 static SemaphoreHandle_t rx_mux;
 static enqueue_realtime_command_ptr enqueue_realtime_command = protocol_enqueue_realtime_command;
 
