@@ -1335,12 +1335,18 @@ static void onMount (const char *path, const vfs_t *fs, vfs_st_mode_t mode)
 {
     if(path[0] == '/' && path[1] == '\0')
         fs_mounted = !mode.hidden;
+
+    if(on_vfs_mount)
+        on_vfs_mount(path, fs, mode);
 }
 
 static void onUnmount (const char *path)
 {
     if(path[0] == '/' && path[1] == '\0')
         fs_mounted = false;
+
+    if(on_vfs_unmount)
+        on_vfs_unmount(path);
 }
 
 bool ftpd_init (uint16_t port)
