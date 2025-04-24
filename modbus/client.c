@@ -644,7 +644,7 @@ void modbus_tcp_client_init (void)
         settings_register(&setting_details);
 
     } else {
-        protocol_enqueue_foreground_task(report_warning, "Modbus TCP failed to initialize!");
+        task_run_on_startup(report_warning, "Modbus TCP failed to initialize!");
         system_raise_alarm(Alarm_SelftestFailed);
     }
 }

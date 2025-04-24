@@ -502,7 +502,7 @@ bool enet_start (void)
 
         } else {
             strcpy(IPAddress, "N/A");
-            protocol_enqueue_foreground_task(report_warning, "Failed to start ethernet stack!");
+            task_run_on_startup(report_warning, "Failed to start ethernet stack!");
             return false;
         }
     }
