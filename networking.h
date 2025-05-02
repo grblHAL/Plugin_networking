@@ -1,7 +1,7 @@
 //
 // networking.h - some shared networking code
 //
-// v1.9 / 2025-02-20 / Io Engineering / Terje
+// v2.0 / 2025-04-30 / Io Engineering / Terje
 //
 
 /*
@@ -62,6 +62,10 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #endif
 
 //*****************************************************************************
+
+#ifndef LINK_CHECK_INTERVAL
+#define LINK_CHECK_INTERVAL 200
+#endif
 
 #if TELNET_ENABLE
 #include "telnetd.h"

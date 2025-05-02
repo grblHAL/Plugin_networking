@@ -63,7 +63,6 @@
 #include "networking/networking.h"
 
 #define SOCKET_MACRAW 0
-#define LINK_CHECK_INTERVAL 200
 
 extern uint8_t mac[6];
 
@@ -300,21 +299,26 @@ static void netif_status_callback (struct netif *netif)
 
 static void link_status_callback (struct netif *netif)
 {
+    static bool dhcp_running = false;
+
     bool isLinkUp = netif_is_link_up(netif);
 
     if(isLinkUp != network_status.link_up) {
 
-        if(!(network_status.link_up = isLinkUp))
-            network_status.ip_aquired = Off;
+        network_flags_t changed = { .link_up = On };
 
-        status_event_publish((network_flags_t){ .link_up = On, .ip_aquired = !isLinkUp });
+        if((network_status.link_up = isLinkUp)) {
+            if(network.ip_mode == IpMode_DHCP && !dhcp_running)
+                dhcp_running = dhcp_start(netif_default) == ERR_OK;
+        } else if(network.ip_mode == IpMode_DHCP && network_status.ip_aquired) {
+            changed.ip_aquired = On;
+            network_status.ip_aquired = Off;
+        }
+
+        status_event_publish(changed);
 
         if(network_status.link_up && network.ip_mode == IpMode_Static)
             netif_status_callback(netif);
-
-#if TELNET_ENABLE
-        telnetd_notify_link_status(network_status.link_up);
-#endif
     }
 }
 
@@ -324,12 +328,24 @@ static void link_check (void *data)
 
     ctlwizchip(CW_GET_PHYLINK, &link_ok);
 
-// TODO: stop running services when link is down
+    wiz_PhyConf cf;
 
-    if(link_ok)
-        netif_set_link_up(netif_default);
-    else
-        task_add_delayed(link_check, NULL, LINK_CHECK_INTERVAL);
+    ctlwizchip(CW_GET_PHYCONF, &cf);
+
+    report_message(uitoa(cf.speed), 0);
+
+    if(link_ok) {
+        if(!netif_is_link_up(netif_default)) {
+            netif_set_up(netif_default);
+            netif_set_link_up(netif_default);
+        }
+    } else if(netif_is_link_up(netif_default)) {
+        // TODO: stop running services when link is down. Do in protocol event handlers?
+       // netif_set_down(netif_default);
+        netif_set_link_down(netif_default);
+    }
+
+    task_add_delayed(link_check, NULL, LINK_CHECK_INTERVAL);
 }
 
 static void enet_poll (void *data)
@@ -338,23 +354,29 @@ static void enet_poll (void *data)
 
     sys_check_timeouts();
 
-    if(network_status.link_up && ++ms == 3) {
-        ms = 0;
+    if(network_status.link_up) switch(++ms) {
 #if TELNET_ENABLE
-        if(services.telnet)
-            telnetd_poll();
-#endif
-#if FTP_ENABLE
-        if(services.ftp)
-            ftpd_poll();
+        case 1:
+            if(services.telnet)
+                telnetd_poll();
+            break;
 #endif
 #if WEBSOCKET_ENABLE
-        if(services.websocket)
-            websocketd_poll();
+        case 2:
+            if(services.websocket)
+                websocketd_poll();
+            break;
+#endif
+        case 3:
+            ms = 0;
+#if FTP_ENABLE
+            if(services.ftp)
+                ftpd_poll();
 #endif
 #if MODBUS_ENABLE & MODBUS_TCP_ENABLED
-        modbus_tcp_client_poll();
+            modbus_tcp_client_poll();
 #endif
+            break;
     }
 }
 
@@ -471,7 +493,6 @@ bool enet_start (void)
             if(socket(SOCKET_MACRAW, Sn_MR_MACRAW, network.telnet_port, 0x00) < 0)
                 return false;
 
-            netif_set_up(netif_default);
             netif_index_to_name(1, if_name);
 #if LWIP_NETIF_HOSTNAME
             netif_set_hostname(netif_default, network.hostname);
@@ -480,24 +501,15 @@ bool enet_start (void)
             network_status.interface_up = On;
             status_event_publish((network_flags_t){ .interface_up = On });
 
-            int8_t link_ok;
-            if(ctlwizchip(CW_GET_PHYLINK, &link_ok) == -1)
-                return false;
-
-            if(link_ok)
-                netif_set_link_up(netif_default);
-            else
-                task_add_delayed(link_check, NULL, LINK_CHECK_INTERVAL);
-
             wizchip_gpio_interrupt_initialize(SOCKET_MACRAW, irq_handler);
 
-            if(network.ip_mode == IpMode_DHCP)
-                dhcp_start(netif_default);
 
 #if MDNS_ENABLE || SSDP_ENABLE || LWIP_IGMP
 //            if(network.services.mdns || network.services.ssdp)
 //                netif_default->flags |= NETIF_FLAG_IGMP;
 #endif
+
+            link_check(NULL);
             task_add_systick(enet_poll, NULL);
 
         } else {

@@ -1,7 +1,7 @@
 //
 // telnetd.c - lwIP "raw" telnet daemon
 //
-// v2.4 / 2025-02-15 / Io Engineering / Terje
+// v2.5 / 2025-04-30 / Io Engineering / Terje
 //
 
 /*
@@ -89,8 +89,9 @@ static const sessiondata_t defaultSettings =
     .lastErr = ERR_OK
 };
 
+static on_network_event_ptr on_network_event;
 static tcp_server_t telnet_server;
-static  sessiondata_t streamSession;
+static sessiondata_t streamSession;
 static SemaphoreHandle_t rx_mux;
 static enqueue_realtime_command_ptr enqueue_realtime_command = protocol_enqueue_realtime_command;
 
@@ -532,12 +533,10 @@ void telnetd_poll (void)
     telnet_stream_handler(&streamSession);
 }
 
+// Deprecated - remove
 void telnetd_notify_link_status (bool up)
 {
-    if(!up)
-        telnet_server.link_lost = true;
 }
-
 
 void telnetd_close_connections (void)
 {
@@ -570,6 +569,14 @@ void telnetd_stop (void)
     }
 }
 
+static void onNetworkEvent (const char *interface, network_status_t status)
+{
+    if((telnet_server.link_lost = !status.flags.link_up) && streamSession.pcb)
+        telnet_close_conn(&streamSession, streamSession.pcb);
+
+    on_network_event(interface, status);
+}
+
 bool telnetd_init (uint16_t port)
 {
     err_t err = ERR_VAL;
@@ -582,6 +589,9 @@ bool telnetd_init (uint16_t port)
 
         if((err = tcp_bind(pcb, IP_ADDR_ANY, port)) == ERR_OK) {
 
+            on_network_event = networking.event;
+            networking.event = onNetworkEvent;
+
             telnet_server.pcb = tcp_listen(pcb);
 
             tcp_arg(telnet_server.pcb, &streamSession);
@@ -592,4 +602,4 @@ bool telnetd_init (uint16_t port)
     return err == ERR_OK;
 }
 
-#endif
+#endif //  TELNET_ENABLE
