@@ -172,11 +172,36 @@ bool networking_enumerate_interfaces (networking_enumerate_interfaces_callback_p
     return ok;
 }
 
-bool if_enumerate (network_info_t *info, network_flags_t flags, void *data)
+static inline bool add_port (char *buf, uint16_t port, bool add_sep)
+{
+    if(add_sep)
+        strcat(buf, ",");
+
+    strcat(buf, uitoa(port));
+
+    return true;
+}
+
+static bool if_enumerate (network_info_t *info, network_flags_t flags, void *data)
 {
     if(flags.interface_up) {
-        char buf[60];
+
+        char buf[100];
+        bool add_sep = false;
+
         sprintf(buf, "IF=%s IP=%s MAC=%s", info->interface, info->status.ip, info->mac);
+
+        if(info->status.services.mask) {
+            strcat(buf, " Listening=");
+            if(info->status.services.ftp)
+                add_sep = add_port(buf, info->status.ftp_port, add_sep);
+            if(info->status.services.telnet)
+                add_sep = add_port(buf, info->status.telnet_port, add_sep);
+            if(info->status.services.http)
+                add_sep = add_port(buf, info->status.http_port, add_sep);
+            if(info->status.services.websocket)
+                add_sep = add_port(buf, info->status.websocket_port, add_sep);
+        }
         report_message(buf, Message_Plain);
     }
 

@@ -332,8 +332,6 @@ static void link_check (void *data)
 
     ctlwizchip(CW_GET_PHYCONF, &cf);
 
-    report_message(uitoa(cf.speed), 0);
-
     if(link_ok) {
         if(!netif_is_link_up(netif_default)) {
             netif_set_up(netif_default);
