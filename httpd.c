@@ -92,6 +92,7 @@
 #include "urldecode.h"
 #include "networking.h"
 
+#include "grbl/platform.h"
 #include "grbl/strutils.h"
 
 /**/
@@ -293,7 +294,11 @@ struct http_state {
 #endif
 /** Default: dynamic headers are sent from ROM (non-dynamic headers are handled like file data) */
 #ifndef HTTP_IS_HDR_VOLATILE
-#define HTTP_IS_HDR_VOLATILE(hs, ptr)   0
+#if defined(STM32_PLATFORM) && defined(DP83848_PHY_ADDRESS)
+#define HTTP_IS_HDR_VOLATILE(hs, ptr) TCP_WRITE_FLAG_COPY
+#else
+#define HTTP_IS_HDR_VOLATILE(hs, ptr) 0
+#endif
 #endif
 
 #define HTTP_HDR_CONTENT_LEN_DIGIT_MAX_LEN  10
