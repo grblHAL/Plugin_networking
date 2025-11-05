@@ -711,43 +711,55 @@ static err_t http_write (struct altcp_pcb *pcb, const void *ptr, u16_t *length, 
  * @param pcb the tcp pcb to reset callbacks
  * @param hs connection state to free
  */
-static err_t http_close_or_abort_conn (struct altcp_pcb *pcb, http_state_t *hs, u8_t abort_conn)
+static err_t http_close_or_abort_conn(struct altcp_pcb *pcb, http_state_t *hs, u8_t abort_conn)
 {
-    err_t err;
-    LWIP_DEBUGF(HTTPD_DEBUG, ("Closing connection %p\n", (void *)pcb));
+    if (!pcb)
+        return ERR_OK;
 
-    if (hs != NULL) {
-        if ((hs->post_content_len_left != 0)
-            #if LWIP_HTTPD_POST_MANUAL_WND
-            || ((hs->no_auto_wnd != 0) && (hs->unrecved_bytes != 0))
-            #endif /* LWIP_HTTPD_POST_MANUAL_WND */
-        ) {
-            /* make sure the post code knows that the connection is closed */
-            *http_uri_buf = '\0';
+    // POST finish — guarded
+    if (hs && (hs->post_content_len_left != 0
+#if LWIP_HTTPD_POST_MANUAL_WND
+               || ((hs->no_auto_wnd != 0) && (hs->unrecved_bytes != 0))
+#endif /* LWIP_HTTPD_POST_MANUAL_WND */
+                   ))
+    {
+        *http_uri_buf = '\0';
+        if (hs->request.post_finished)
+        {
             hs->request.post_finished(&hs->request, http_uri_buf, LWIP_HTTPD_URI_BUF_LEN);
         }
     }
 
-    altcp_arg(pcb, NULL);
+    // Stop data path callbacks; keep arg for now
     altcp_recv(pcb, NULL);
-    altcp_err(pcb, NULL);
-    altcp_poll(pcb, NULL, 0);
     altcp_sent(pcb, NULL);
-    if (hs != NULL)
-        http_state_free(hs);
+    altcp_err(pcb, NULL);
 
-    if (abort_conn) {
+    if (abort_conn)
+    {
+        altcp_poll(pcb, NULL, 0);
+        altcp_arg(pcb, NULL);
+        if (hs)
+            http_state_free(hs);
         altcp_abort(pcb);
+        return ERR_ABRT; // ← important
+    }
+
+    err_t err = altcp_close(pcb);
+    if (err != ERR_OK)
+    {
+        // Retry later: keep arg so http_poll has hs
+        altcp_poll(pcb, http_poll, HTTPD_POLL_INTERVAL);
+        altcp_arg(pcb, hs);
         return ERR_OK;
     }
 
-    if ((err = altcp_close(pcb)) != ERR_OK) {
-        LWIP_DEBUGF(HTTPD_DEBUG, ("Error %d closing %p\n", err, (void *)pcb));
-        /* error closing, try again later in poll */
-        altcp_poll(pcb, http_poll, HTTPD_POLL_INTERVAL);
-    }
-
-    return err;
+    // Close succeeded: now detach everything and free
+    altcp_poll(pcb, NULL, 0);
+    altcp_arg(pcb, NULL);
+    if (hs)
+        http_state_free(hs);
+    return ERR_OK;
 }
 
 /**
@@ -2079,13 +2091,17 @@ static err_t http_sent (void *arg, struct altcp_pcb *pcb, u16_t len)
  *
  * This could be increased, but we don't want to waste resources for bad connections.
  */
-static err_t http_poll (void *arg, struct altcp_pcb *pcb)
+static err_t http_poll(void *arg, struct altcp_pcb *pcb)
 {
     http_state_t *hs = (http_state_t *)arg;
+    if (!pcb || !hs) // ← avoid NULL deref on retries
+        return ERR_OK;
+
     //  LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("http_poll: pcb=%p hs=%p pcb_state=%s\n",
     //              (void *)pcb, (void *)hs, tcp_debug_state_str(altcp_dbg_get_tcp_state(pcb))));
 
-    if (hs == NULL) {
+    if (hs == NULL)
+    {
 
         err_t closed;
         /* arg is null, close. */
@@ -2093,27 +2109,33 @@ static err_t http_poll (void *arg, struct altcp_pcb *pcb)
         closed = http_close_conn(pcb, NULL);
         LWIP_UNUSED_ARG(closed);
 #if LWIP_HTTPD_ABORT_ON_CLOSE_MEM_ERROR
-        if (closed == ERR_MEM) {
+        if (closed == ERR_MEM)
+        {
             altcp_abort(pcb);
             return ERR_ABRT;
         }
 #endif /* LWIP_HTTPD_ABORT_ON_CLOSE_MEM_ERROR */
         return ERR_OK;
-
-    } else {
+    }
+    else
+    {
         hs->retries++;
-        if (hs->retries == HTTPD_MAX_RETRIES) {
+        if (hs->retries == HTTPD_MAX_RETRIES)
+        {
             LWIP_DEBUGF(HTTPD_DEBUG, ("http_poll: too many retries, close\n"));
-            http_close_conn(pcb, hs);
-            return ERR_OK;
+            // Call http_close_or_abort_conn directly and return its return value rather than just ERR_OK because it sometimes should be ERR_ABRT
+            err_t r = http_close_or_abort_conn(pcb, hs, 0);
+            return r;
         }
 
         /* If this connection has a file open, try to send some more data. If
-        * it has not yet received a GET request, don't do this since it will
-        * cause the connection to close immediately. */
-        if (hs->handle) {
+         * it has not yet received a GET request, don't do this since it will
+         * cause the connection to close immediately. */
+        if (hs->handle)
+        {
             LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("http_poll: try to send more data\n"));
-            if (http_send(pcb, hs)) {
+            if (http_send(pcb, hs))
+            {
                 /* If we wrote anything to be sent, go ahead and send it now. */
                 LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("tcp_output\n"));
                 altcp_output(pcb);
