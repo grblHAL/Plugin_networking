@@ -384,7 +384,7 @@ static char http_uri_buf[LWIP_HTTPD_URI_BUF_LEN + 1];
 #endif
 
 #if HTTPD_USE_MEM_POOL
-LWIP_MEMPOOL_DECLARE(HTTPD_STATE,     MEMP_NUM_PARALLEL_HTTPD_CONNS,     sizeof(http_state_t),     "HTTPD_STATE")
+LWIP_MEMPOOL_DECLARE(HTTPD_STATE, MEMP_NUM_PARALLEL_HTTPD_CONNS, sizeof(http_state_t), "HTTPD_STATE")
 #define HTTP_ALLOC_HTTP_STATE() (http_state_t *)LWIP_MEMPOOL_ALLOC(HTTPD_STATE)
 #define HTTP_FREE_HTTP_STATE(x) LWIP_MEMPOOL_FREE(HTTPD_STATE, (x))
 #else /* HTTPD_USE_MEM_POOL */
@@ -392,8 +392,8 @@ LWIP_MEMPOOL_DECLARE(HTTPD_STATE,     MEMP_NUM_PARALLEL_HTTPD_CONNS,     sizeof(
 #define HTTP_FREE_HTTP_STATE(x) mem_free(x)
 #endif /* HTTPD_USE_MEM_POOL */
 
-static err_t http_close_conn (struct altcp_pcb *pcb, http_state_t *hs);
-static err_t http_close_or_abort_conn (struct altcp_pcb *pcb, http_state_t *hs, u8_t abort_conn);
+#define http_close_conn(pcb, hs) http_close_or_abort_conn(pcb, hs, false)
+static err_t http_close_or_abort_conn (struct altcp_pcb *pcb, http_state_t *hs, bool abort_conn);
 static err_t http_init_file (http_state_t *hs, vfs_file_t *file, const char *uri, char *params);
 static err_t http_poll (void *arg, struct altcp_pcb *pcb);
 static bool http_check_eof (struct altcp_pcb *pcb, http_state_t *hs);
@@ -461,7 +461,7 @@ static void http_kill_oldest_connection (u8_t ssi_required)
         LWIP_ASSERT("hs_free_next->next != NULL", hs_free_next->next != NULL);
         LWIP_ASSERT("hs_free_next->next->pcb != NULL", hs_free_next->next->pcb != NULL);
         /* send RST when killing a connection because of memory shortage */
-        http_close_or_abort_conn(hs_free_next->next->pcb, hs_free_next->next, 1); /* this also unlinks the http_state from the list */
+        http_close_or_abort_conn(hs_free_next->next->pcb, hs_free_next->next, true); /* this also unlinks the http_state from the list */
     }
 }
 #else /* LWIP_HTTPD_KILL_OLD_ON_CONNECTIONS_EXCEEDED */
@@ -711,14 +711,10 @@ static err_t http_write (struct altcp_pcb *pcb, const void *ptr, u16_t *length, 
  * @param pcb the tcp pcb to reset callbacks
  * @param hs connection state to free
  */
-static err_t http_close_or_abort_conn (struct altcp_pcb *pcb, http_state_t *hs, u8_t abort_conn)
+static err_t http_close_or_abort_conn (struct altcp_pcb *pcb, http_state_t *hs, bool abort_conn)
 {
-    if (!pcb)
-        return ERR_OK;
-
     LWIP_DEBUGF(HTTPD_DEBUG, ("Closing connection %p\n", (void *)pcb));
 
-    // POST finish — guarded
     if (hs && (hs->post_content_len_left != 0
 #if LWIP_HTTPD_POST_MANUAL_WND
                || ((hs->no_auto_wnd != 0) && (hs->unrecved_bytes != 0))
@@ -726,12 +722,10 @@ static err_t http_close_or_abort_conn (struct altcp_pcb *pcb, http_state_t *hs, 
                    ))
     {
         *http_uri_buf = '\0';
-        if (hs->request.post_finished) {
+        if (hs->request.post_finished)
             hs->request.post_finished(&hs->request, http_uri_buf, LWIP_HTTPD_URI_BUF_LEN);
-        }
     }
 
-    /* Stop data path callbacks; keep arg for now */
     altcp_recv(pcb, NULL);
     altcp_sent(pcb, NULL);
     altcp_err(pcb, NULL);
@@ -746,33 +740,15 @@ static err_t http_close_or_abort_conn (struct altcp_pcb *pcb, http_state_t *hs, 
         return ERR_ABRT;
     }
 
-    if (altcp_close(pcb) != ERR_OK) {
-        // Retry later: keep arg so http_poll has hs
-        altcp_poll(pcb, http_poll, HTTPD_POLL_INTERVAL);
-        altcp_arg(pcb, hs);
-
-        return ERR_OK;
-    }
-
-    /* Close succeeded: now detach everything and free */
-    altcp_poll(pcb, NULL, 0);
-    altcp_arg(pcb, NULL);
-    if (hs)
-        http_state_free(hs);
+    if (altcp_close(pcb) == ERR_OK) {
+        altcp_poll(pcb, NULL, 0);
+        altcp_arg(pcb, NULL);
+        if (hs)
+            http_state_free(hs);
+    } else if(hs) /* error closing, try again later in poll */
+        hs->retries = HTTPD_MAX_RETRIES;
 
     return ERR_OK;
-}
-
-/**
- * The connection shall be actively closed.
- * Reset the sent- and recv-callbacks.
- *
- * @param pcb the tcp pcb to reset callbacks
- * @param hs connection state to free
- */
-static err_t http_close_conn (struct altcp_pcb *pcb, http_state_t *hs)
-{
-  return http_close_or_abort_conn(pcb, hs, 0);
 }
 
 /** End of file: either close the connection (Connection: close) or
@@ -2095,31 +2071,29 @@ static err_t http_sent (void *arg, struct altcp_pcb *pcb, u16_t len)
 static err_t http_poll (void *arg, struct altcp_pcb *pcb)
 {
     http_state_t *hs = (http_state_t *)arg;
-    if (!pcb || !hs)
-        return ERR_OK;
 
     //  LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("http_poll: pcb=%p hs=%p pcb_state=%s\n",
     //              (void *)pcb, (void *)hs, tcp_debug_state_str(altcp_dbg_get_tcp_state(pcb))));
 
     if (hs == NULL) {
-
-        err_t closed;
         /* arg is null, close. */
         LWIP_DEBUGF(HTTPD_DEBUG, ("http_poll: arg is NULL, close\n"));
-        closed = http_close_conn(pcb, NULL);
-        LWIP_UNUSED_ARG(closed);
+
 #if LWIP_HTTPD_ABORT_ON_CLOSE_MEM_ERROR
-        if (closed == ERR_MEM) {
+        if (http_close_conn(pcb, NULL) == ERR_MEM) {
             altcp_abort(pcb);
             return ERR_ABRT;
         }
+#else
+        http_close_conn(pcb, NULL);
 #endif /* LWIP_HTTPD_ABORT_ON_CLOSE_MEM_ERROR */
         return ERR_OK;
+
     } else {
-        hs->retries++;
-        if (hs->retries == HTTPD_MAX_RETRIES) {
+
+        if (++hs->retries >= HTTPD_MAX_RETRIES) {
             LWIP_DEBUGF(HTTPD_DEBUG, ("http_poll: too many retries, close\n"));
-            return http_close_or_abort_conn(pcb, hs, 0);
+            return http_close_or_abort_conn(pcb, hs, hs->retries >= 25);
         }
 
         /* If this connection has a file open, try to send some more data. If
@@ -2256,7 +2230,7 @@ static err_t http_accept (void *arg, struct altcp_pcb *pcb, err_t err)
     /* Set up the various callback functions */
     altcp_recv(pcb, http_recv);
     altcp_err(pcb, http_err);
-    tcp_poll(pcb, http_poll, HTTPD_POLL_INTERVAL);
+    altcp_poll(pcb, http_poll, HTTPD_POLL_INTERVAL);
     altcp_sent(pcb, http_sent);
 
     return ERR_OK;
