@@ -616,11 +616,11 @@ static char *ethernet_get_mac (setting_id_t setting)
     return networking_mac_to_string(ethernet.mac);
 }
 
-static const setting_group_detail_t ethernet_groups [] = {
+PROGMEM static const setting_group_detail_t ethernet_groups [] = {
     { Group_Root, Group_Networking, "Networking" }
 };
 
-static const setting_detail_t ethernet_settings[] = {
+PROGMEM static const setting_detail_t ethernet_settings[] = {
     { Setting_NetworkServices, Group_Networking, "Network Services", NULL, Format_Bitfield, netservices, NULL, NULL, Setting_NonCoreFn, ethernet_set_services, ethernet_get_services, NULL, { .reboot_required = On } },
     { Setting_Hostname, Group_Networking, "Hostname", NULL, Format_String, "x(64)", NULL, "64", Setting_NonCore, ethernet.hostname, NULL, NULL, { .reboot_required = On } },
     { Setting_IpMode, Group_Networking, "IP Mode", NULL, Format_RadioButtons, "Static,DHCP,AutoIP", NULL, NULL, Setting_NonCore, &ethernet.ip_mode, NULL, NULL, { .reboot_required = On } },
@@ -644,9 +644,7 @@ static const setting_detail_t ethernet_settings[] = {
 #endif
 };
 
-#ifndef NO_SETTINGS_DESCRIPTIONS
-
-static const setting_descr_t ethernet_settings_descr[] = {
+PROGMEM static const setting_descr_t ethernet_settings_descr[] = {
     { Setting_NetworkServices, "Network services/protocols to enable." },
     { Setting_Hostname, "Network hostname." },
     { Setting_IpMode, "IP Mode." },
@@ -671,8 +669,6 @@ static const setting_descr_t ethernet_settings_descr[] = {
     { Setting_MQTTBrokerPassword, "Remote MQTT broker password." },
 #endif
 };
-
-#endif
 
 static void ethernet_settings_save (void)
 {
@@ -740,20 +736,6 @@ static void ethernet_settings_load (void)
     ethernet.services.mask &= allowed_services.mask;
 }
 
-static setting_details_t setting_details = {
-    .groups = ethernet_groups,
-    .n_groups = sizeof(ethernet_groups) / sizeof(setting_group_detail_t),
-    .settings = ethernet_settings,
-    .n_settings = sizeof(ethernet_settings) / sizeof(setting_detail_t),
-#ifndef NO_SETTINGS_DESCRIPTIONS
-    .descriptions = ethernet_settings_descr,
-    .n_descriptions = sizeof(ethernet_settings_descr) / sizeof(setting_descr_t),
-#endif
-    .save = ethernet_settings_save,
-    .load = ethernet_settings_load,
-    .restore = ethernet_settings_restore
-};
-
 static void stream_changed (stream_type_t type)
 {
     if(type != StreamType_SDCard)
@@ -765,7 +747,19 @@ static void stream_changed (stream_type_t type)
 
 bool enet_init (void)
 {
-    if((nvs_address = nvs_alloc(sizeof(network_settings_t)))) {
+    static setting_details_t setting_details = {
+        .groups = ethernet_groups,
+        .n_groups = sizeof(ethernet_groups) / sizeof(setting_group_detail_t),
+        .settings = ethernet_settings,
+        .n_settings = sizeof(ethernet_settings) / sizeof(setting_detail_t),
+        .descriptions = ethernet_settings_descr,
+        .n_descriptions = sizeof(ethernet_settings_descr) / sizeof(setting_descr_t),
+        .save = ethernet_settings_save,
+        .load = ethernet_settings_load,
+        .restore = ethernet_settings_restore
+    };
+
+   if((nvs_address = nvs_alloc(sizeof(network_settings_t)))) {
 
         networking_init();
 

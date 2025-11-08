@@ -517,7 +517,7 @@ static bool modbus_group_available (const setting_group_detail_t *group)
     return group->id < Group_ModBusUnit0 + MODBUS_N_CLIENTS;
 }
 
-static const setting_group_detail_t modbus_groups [] = {
+PROGMEM static const setting_group_detail_t modbus_groups [] = {
     { Group_Root, Group_ModBus, "ModBus"},
     { Group_ModBus, Group_ModBusUnit0, "ModBus TCP, unit 1", modbus_group_available},
     { Group_ModBus, Group_ModBusUnit1, "ModBus TCP, unit 2", modbus_group_available},
@@ -529,21 +529,17 @@ static const setting_group_detail_t modbus_groups [] = {
     { Group_ModBus, Group_ModBusUnit7, "ModBus TCP, unit 8", modbus_group_available}
 };
 
-static const setting_detail_t modbus_settings[] = {
+PROGMEM static const setting_detail_t modbus_settings[] = {
     { Setting_ModbusIpAddressBase, Group_ModBusUnit0, "Unit ? IP address", NULL, Format_IPv4, NULL, NULL, NULL, Setting_NonCoreFn, modbus_set_ip, modbus_get_ip, NULL, MSET_OPTS },
     { Setting_ModbusPortBase, Group_ModBusUnit0, "Unit ? port", NULL, Format_Int16, "####0", "1", "65535", Setting_NonCoreFn, modbus_set_setting, modbus_get_setting, NULL, MSET_OPTS },
     { Setting_ModbusIdBase, Group_ModBusUnit0, "Unit ? ID", NULL, Format_Int16, "##0", "0", "255", Setting_NonCoreFn, modbus_set_setting, modbus_get_setting, NULL, MSET_OPTS }
 };
 
-#ifndef NO_SETTINGS_DESCRIPTIONS
-
-static const setting_descr_t modbus_settings_descr[] = {
+PROGMEM static const setting_descr_t modbus_settings_descr[] = {
     { Setting_ModbusIpAddressBase, "IP address of unit." },
     { Setting_ModbusPortBase, "Port number of unit, 502 is the standard ModBus port." },
     { Setting_ModbusIdBase, "ModBus id of unit, set to to 0 to disable communication." },
 };
-
-#endif
 
 static void modbus_settings_save (void)
 {
@@ -580,21 +576,6 @@ bool modbus_settings_iterator (const setting_detail_t *setting, setting_output_p
 
     return true;
 }
-
-static setting_details_t setting_details = {
-    .groups = modbus_groups,
-    .n_groups = sizeof(modbus_groups) / sizeof(setting_group_detail_t),
-    .settings = modbus_settings,
-    .n_settings = sizeof(modbus_settings) / sizeof(setting_detail_t),
-#ifndef NO_SETTINGS_DESCRIPTIONS
-    .descriptions = modbus_settings_descr,
-    .n_descriptions = sizeof(modbus_settings_descr) / sizeof(setting_descr_t),
-#endif
-    .save = modbus_settings_save,
-    .load = modbus_settings_load,
-    .restore = modbus_settings_restore,
-    .iterator = modbus_settings_iterator
-};
 
 static bool modbus_tcp_isup (void)
 {
@@ -633,6 +614,19 @@ void modbus_tcp_client_init (void)
         .is_up = modbus_tcp_isup,
         .flush_queue = modbus_tcp_flush_queue,
         .send = modbus_rtu_send
+    };
+
+    static setting_details_t setting_details = {
+        .groups = modbus_groups,
+        .n_groups = sizeof(modbus_groups) / sizeof(setting_group_detail_t),
+        .settings = modbus_settings,
+        .n_settings = sizeof(modbus_settings) / sizeof(setting_detail_t),
+        .descriptions = modbus_settings_descr,
+        .n_descriptions = sizeof(modbus_settings_descr) / sizeof(setting_descr_t),
+        .save = modbus_settings_save,
+        .load = modbus_settings_load,
+        .restore = modbus_settings_restore,
+        .iterator = modbus_settings_iterator
     };
 
     if((nvs_address = nvs_alloc(sizeof(modbus_tcp_settings_t) * MODBUS_N_CLIENTS))) {

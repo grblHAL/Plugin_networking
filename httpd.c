@@ -352,16 +352,16 @@ PROGMEM static const default_filename httpd_default_filenames[] = {
 
 http_event_t httpd = {0};
 
-static const char *msg200 = "HTTP/1.1 200 OK" CRLF;
-static const char *msg400 = "HTTP/1.1 400 Bad Request" CRLF;
-static const char *msg404 = "HTTP/1.1 404 File not found" CRLF;
-static const char *msg501 = "HTTP/1.1 501 Not Implemented" CRLF;
-static const char *agent = "Server: " HTTPD_SERVER_AGENT CRLF;
-static const char *conn_close = "Connection: Close" CRLF CRLF;
-static const char *conn_keep = "Connection: keep-alive" CRLF CRLF;
-static const char *conn_keep2 = "Connection: keep-alive" CRLF "Content-Length: ";
-//static const char *cont_len = "Content-Length: ";
-static const char *rsp404 = "<html><body><h2>404: The requested file cannot be found.</h2></body></html>" CRLF;
+PROGMEM static const char msg200[] = "HTTP/1.1 200 OK" CRLF;
+PROGMEM static const char msg400[] = "HTTP/1.1 400 Bad Request" CRLF;
+PROGMEM static const char msg404[] = "HTTP/1.1 404 File not found" CRLF;
+PROGMEM static const char msg501[] = "HTTP/1.1 501 Not Implemented" CRLF;
+PROGMEM static const char agent[] = "Server: " HTTPD_SERVER_AGENT CRLF;
+PROGMEM static const char conn_close[] = "Connection: Close" CRLF CRLF;
+PROGMEM static const char conn_keep[] = "Connection: keep-alive" CRLF CRLF;
+PROGMEM static const char conn_keep2[] = "Connection: keep-alive" CRLF "Content-Length: ";
+//static const char cont_len[] = "Content-Length: ";
+PROGMEM static const char rsp404[] = "<html><body><h2>404: The requested file cannot be found.</h2></body></html>" CRLF;
 static const char *http_methods = HTTP_METHODS;
 static SemaphoreHandle_t handler_mux;
 
@@ -711,10 +711,12 @@ static err_t http_write (struct altcp_pcb *pcb, const void *ptr, u16_t *length, 
  * @param pcb the tcp pcb to reset callbacks
  * @param hs connection state to free
  */
-static err_t http_close_or_abort_conn(struct altcp_pcb *pcb, http_state_t *hs, u8_t abort_conn)
+static err_t http_close_or_abort_conn (struct altcp_pcb *pcb, http_state_t *hs, u8_t abort_conn)
 {
     if (!pcb)
         return ERR_OK;
+
+    LWIP_DEBUGF(HTTPD_DEBUG, ("Closing connection %p\n", (void *)pcb));
 
     // POST finish — guarded
     if (hs && (hs->post_content_len_left != 0
@@ -724,41 +726,40 @@ static err_t http_close_or_abort_conn(struct altcp_pcb *pcb, http_state_t *hs, u
                    ))
     {
         *http_uri_buf = '\0';
-        if (hs->request.post_finished)
-        {
+        if (hs->request.post_finished) {
             hs->request.post_finished(&hs->request, http_uri_buf, LWIP_HTTPD_URI_BUF_LEN);
         }
     }
 
-    // Stop data path callbacks; keep arg for now
+    /* Stop data path callbacks; keep arg for now */
     altcp_recv(pcb, NULL);
     altcp_sent(pcb, NULL);
     altcp_err(pcb, NULL);
 
-    if (abort_conn)
-    {
+    if (abort_conn) {
         altcp_poll(pcb, NULL, 0);
         altcp_arg(pcb, NULL);
         if (hs)
             http_state_free(hs);
         altcp_abort(pcb);
-        return ERR_ABRT; // ← important
+
+        return ERR_ABRT;
     }
 
-    err_t err = altcp_close(pcb);
-    if (err != ERR_OK)
-    {
+    if (altcp_close(pcb) != ERR_OK) {
         // Retry later: keep arg so http_poll has hs
         altcp_poll(pcb, http_poll, HTTPD_POLL_INTERVAL);
         altcp_arg(pcb, hs);
+
         return ERR_OK;
     }
 
-    // Close succeeded: now detach everything and free
+    /* Close succeeded: now detach everything and free */
     altcp_poll(pcb, NULL, 0);
     altcp_arg(pcb, NULL);
     if (hs)
         http_state_free(hs);
+
     return ERR_OK;
 }
 
@@ -2091,17 +2092,16 @@ static err_t http_sent (void *arg, struct altcp_pcb *pcb, u16_t len)
  *
  * This could be increased, but we don't want to waste resources for bad connections.
  */
-static err_t http_poll(void *arg, struct altcp_pcb *pcb)
+static err_t http_poll (void *arg, struct altcp_pcb *pcb)
 {
     http_state_t *hs = (http_state_t *)arg;
-    if (!pcb || !hs) // ← avoid NULL deref on retries
+    if (!pcb || !hs)
         return ERR_OK;
 
     //  LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("http_poll: pcb=%p hs=%p pcb_state=%s\n",
     //              (void *)pcb, (void *)hs, tcp_debug_state_str(altcp_dbg_get_tcp_state(pcb))));
 
-    if (hs == NULL)
-    {
+    if (hs == NULL) {
 
         err_t closed;
         /* arg is null, close. */
@@ -2109,33 +2109,25 @@ static err_t http_poll(void *arg, struct altcp_pcb *pcb)
         closed = http_close_conn(pcb, NULL);
         LWIP_UNUSED_ARG(closed);
 #if LWIP_HTTPD_ABORT_ON_CLOSE_MEM_ERROR
-        if (closed == ERR_MEM)
-        {
+        if (closed == ERR_MEM) {
             altcp_abort(pcb);
             return ERR_ABRT;
         }
 #endif /* LWIP_HTTPD_ABORT_ON_CLOSE_MEM_ERROR */
         return ERR_OK;
-    }
-    else
-    {
+    } else {
         hs->retries++;
-        if (hs->retries == HTTPD_MAX_RETRIES)
-        {
+        if (hs->retries == HTTPD_MAX_RETRIES) {
             LWIP_DEBUGF(HTTPD_DEBUG, ("http_poll: too many retries, close\n"));
-            // Call http_close_or_abort_conn directly and return its return value rather than just ERR_OK because it sometimes should be ERR_ABRT
-            err_t r = http_close_or_abort_conn(pcb, hs, 0);
-            return r;
+            return http_close_or_abort_conn(pcb, hs, 0);
         }
 
         /* If this connection has a file open, try to send some more data. If
          * it has not yet received a GET request, don't do this since it will
          * cause the connection to close immediately. */
-        if (hs->handle)
-        {
+        if (hs->handle) {
             LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("http_poll: try to send more data\n"));
-            if (http_send(pcb, hs))
-            {
+            if (http_send(pcb, hs)) {
                 /* If we wrote anything to be sent, go ahead and send it now. */
                 LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("tcp_output\n"));
                 altcp_output(pcb);

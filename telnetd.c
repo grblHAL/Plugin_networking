@@ -76,7 +76,7 @@ typedef struct
     uint8_t errorCount;
 } sessiondata_t;
 
-static const sessiondata_t defaultSettings =
+PROGMEM static const sessiondata_t defaultSettings =
 {
     .timeout = 0,
     .timeoutMax = SOCKET_TIMEOUT,
@@ -100,9 +100,9 @@ static void telnet_stream_handler (sessiondata_t *session);
 //
 // streamGetC - returns -1 if no data available
 //
-static int16_t streamGetC (void)
+static int32_t streamGetC (void)
 {
-    int16_t data;
+    int32_t data;
 
     if(streamSession.rxbuf.tail == streamSession.rxbuf.head)
         return SERIAL_NO_DATA; // no data available else EOF
@@ -165,7 +165,7 @@ static bool streamRxPutC (char c)
     return mpg || !overflow;
 }
 
-static bool streamPutC (const char c)
+static bool streamPutC (const uint8_t c)
 {
     uint_fast16_t next_head = BUFNEXT(streamSession.txbuf.head, streamSession.txbuf);
 
@@ -185,12 +185,12 @@ static void streamWriteS (const char *data)
     char c, *ptr = (char *)data;
 
     while((c = *ptr++) != '\0')
-        streamPutC(c);
+        streamPutC((uint8_t)c);
 }
 
-static void streamWrite (const char *data, uint16_t length)
+static void streamWrite (const uint8_t *data, uint16_t length)
 {
-    char *ptr = (char *)data;
+    uint8_t *ptr = (uint8_t *)data;
 
     while(length--)
         streamPutC(*ptr++);
@@ -223,7 +223,7 @@ static void streamTxFlush (void)
 }
 */
 
-static bool streamEnqueueRtCommand (char c)
+static bool streamEnqueueRtCommand (uint8_t c)
 {
     return enqueue_realtime_command(c);
 }
@@ -388,7 +388,7 @@ static bool is_connected (void)
 
 static err_t telnet_accept (void *arg, struct tcp_pcb *pcb, err_t err)
 {
-    static const io_stream_t telnet_stream = {
+    PROGMEM static const io_stream_t telnet_stream = {
         .type = StreamType_Telnet,
         .is_connected = is_connected,
         .read = streamGetC,

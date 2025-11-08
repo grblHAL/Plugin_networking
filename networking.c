@@ -219,7 +219,7 @@ void networking_init (void)
 {
     static bool ok = false;
 
-    static const sys_command_t net_command_list[] = {
+    PROGMEM static const sys_command_t net_command_list[] = {
         {"NETIF", netif, { .allow_blocking = On, .noargs = On }, { .str = "provides information about network interfaces" } }
     };
 

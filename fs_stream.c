@@ -45,8 +45,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "grbl/vfs.h"
 
 typedef struct {
-    const char *data;
-    const char *pos;
+    const uint8_t *data;
+    const uint8_t *pos;
     size_t len;
     size_t remaining;
     vfs_file_t file;
@@ -59,7 +59,7 @@ static driver_reset_ptr driver_reset = NULL;
 
 static bool vf_write (void)
 {
-    char *data = realloc((void *)v_file.data, v_file.len + txbuf.length);
+    uint8_t *data = realloc((void *)v_file.data, v_file.len + txbuf.length);
 
     if(data == NULL) {
 
@@ -175,7 +175,7 @@ static size_t fs_read (void *buffer, size_t size, size_t count, vfs_file_t *file
 
 static size_t fs_write (const void *buffer, size_t size, size_t count, vfs_file_t *file)
 {
-    char *s = (char *)buffer;
+    uint8_t *s = (uint8_t *)buffer;
     size_t length = size * count;
 
     if(length == 0)

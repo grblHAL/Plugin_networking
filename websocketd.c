@@ -251,9 +251,9 @@ websocket_events_t websocket;
 //
 // streamGetC - returns -1 if no data available
 //
-static int16_t streamGetC (void)
+static int32_t streamGetC (void)
 {
-    int16_t data;
+    int32_t data;
 
     if(xSemaphoreTake(rx_mux, portMAX_DELAY) == pdTRUE) {
         if(streambuffers.rxbuf.tail == streambuffers.rxbuf.head){
@@ -326,7 +326,7 @@ bool websocketd_RxPutC (char c)
     return ok && !overflow;
 }
 
-static bool streamPutC (const char c)
+static bool streamPutC (const uint8_t c)
 {
     uint_fast16_t next_head = BUFNEXT(streambuffers.txbuf.head, streambuffers.txbuf);
 
@@ -346,12 +346,12 @@ static void streamWriteS (const char *data)
     char c, *ptr = (char *)data;
 
     while((c = *ptr++) != '\0')
-        streamPutC(c);
+        streamPutC((uint8_t)c);
 }
 
-static void streamWrite (const char *data, uint16_t length)
+static void streamWrite (const uint8_t *data, uint16_t length)
 {
-    char *ptr = (char *)data;
+    uint8_t *ptr = (uint8_t *)data;
 
     while(length--)
         streamPutC(*ptr++);
@@ -382,7 +382,7 @@ static void streamTxFlush (void)
     streambuffers.txbuf.tail = streambuffers.txbuf.head;
 }
 
-static bool streamEnqueueRtCommand (char c)
+static bool streamEnqueueRtCommand (uint8_t c)
 {
     return enqueue_realtime_command(c);
 }

@@ -45,8 +45,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string.h>
 
 typedef struct {
-    const char *data;
-    const char *pos;
+    const uint8_t *data;
+    const uint8_t *pos;
     bool write;
     size_t len;
     size_t remaining;
@@ -57,9 +57,9 @@ typedef struct {
 static ram_file_t v_file = {0};
 static driver_reset_ptr driver_reset = NULL;
 
-static bool ram_write (ram_file_t *file, const char *s, size_t length)
+static bool ram_write (ram_file_t *file, const uint8_t *s, size_t length)
 {
-    char *data = realloc((void *)v_file.data, v_file.len + length);
+    uint8_t *data = realloc((void *)v_file.data, v_file.len + length);
 
     if(data == NULL) {
 
@@ -142,7 +142,7 @@ static size_t fs_read (void *buffer, size_t size, size_t count, vfs_file_t *file
 
 static size_t fs_write (const void *buffer, size_t size, size_t count, vfs_file_t *file)
 {
-    char *s = (char *)buffer;
+    uint8_t *s = (uint8_t *)buffer;
     size_t length = size * count;
 
     if(length == 0 || v_file.file.handle == 0)
@@ -222,7 +222,7 @@ static void fs_reset (void)
 
 void fs_ram_mount (void)
 {
-    static const vfs_t fs = {
+    PROGMEM static const vfs_t fs = {
         .fopen = fs_open,
         .fclose = fs_close,
         .fread = fs_read,
