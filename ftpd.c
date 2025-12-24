@@ -680,10 +680,14 @@ static void cmd_pwd (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *fsm)
     char *path;
 
     if ((path = vfs_getcwd(NULL, 0))) {
-        send_msg(pcb, fsm, msg257PWD, path);
+        if(*path) { // Only send if path is not empty
+            send_msg(pcb, fsm, msg257PWD, path);
+        } else {
+            send_msg(pcb, fsm, msg257PWD, "/"); // Default to root if empty
+        }
         free(path);
     } else
-        send_msg(pcb, fsm, msg550);
+        send_msg(pcb, fsm, msg257PWD, "/"); // Default to root on error
 }
 
 static void cmd_list_common (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *fsm, int shortlist)
@@ -1302,6 +1306,9 @@ static err_t ftpd_msgaccept (void *arg, struct tcp_pcb *pcb, err_t err)
         free(fsm);
         return ERR_CLSD;
     }
+
+    /* Initialize working directory to root */
+    vfs_chdir("/");
 
     /* Tell TCP that this is the structure we wish to be passed for our callbacks. */
     tcp_arg(pcb, fsm);
