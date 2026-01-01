@@ -100,7 +100,7 @@
 #if LWIP_HTTPD_DYNAMIC_HEADERS
 
 /* The number of individual strings that comprise the headers sent before each requested file. */
-#define NUM_FILE_HDR_STRINGS            8
+#define NUM_FILE_HDR_STRINGS            16
 #define HDR_STRINGS_IDX_HTTP_STATUS     0 /* e.g. "HTTP/1.0 200 OK\r\n" */
 #define HDR_STRINGS_IDX_SERVER_NAME     1 /* e.g. "Server: "HTTPD_SERVER_AGENT"\r\n" */
 #define HDR_STRINGS_IDX_CONTENT_NEXT    2 /* the content type (or default answer content type including default document) */
@@ -841,6 +841,14 @@ static bool is_response_header_set (http_state_t *hs, const char *name)
     } while(i && !is_set);
 
     return is_set;
+}
+
+static void http_add_cors_headers (http_request_t *req)
+{
+    http_set_response_header(req, "Access-Control-Allow-Origin", "*");
+    http_set_response_header(req, "Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
+    http_set_response_header(req, "Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
+    http_set_response_header(req, "Access-Control-Max-Age", "86400");
 }
 
 bool http_set_response_header (http_request_t *request, const char *name, const char *value)
@@ -1685,6 +1693,10 @@ static err_t http_parse_request (struct pbuf *inp, http_state_t *hs, struct altc
                 hs->response_hdr.next = HDR_STRINGS_IDX_CONTENT_NEXT;
 #endif /* LWIP_HTTPD_DYNAMIC_HEADERS */
 
+#if LWIP_HTTPD_DYNAMIC_HEADERS
+    http_add_cors_headers(&hs->request);
+#endif
+
                 if (hs->method == HTTP_Post) {
 
                     int content_len = -1;
@@ -1857,6 +1869,8 @@ static err_t http_process_request (http_state_t *hs, const char *uri)
                 uint32_t len = strlen(http_methods);
 
                 http_set_response_status(&hs->request, "200 OK");
+
+                http_add_cors_headers(&hs->request);
 
                 if((allow = s2 = malloc(len + 1))) {
                     s1 = (char *)http_methods;
