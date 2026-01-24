@@ -159,17 +159,6 @@ typedef struct {
 
 #define HTTP_HDR_DEFAULT_TYPE   HTTP_CONTENT_TYPE("text/plain")
 
-/* --- WebUI MIME extensions --- */
-#define HTTPD_ADDITIONAL_CONTENT_TYPES \
-  { "wasm",  HTTP_CONTENT_TYPE("application/wasm") }, \
-  { "svg",   HTTP_CONTENT_TYPE("image/svg+xml") }, \
-  { "mjs",   HTTP_CONTENT_TYPE("application/javascript") }, \
-  { "map",   HTTP_CONTENT_TYPE("application/json") }, \
-  { "woff",  HTTP_CONTENT_TYPE("font/woff") }, \
-  { "woff2", HTTP_CONTENT_TYPE("font/woff2") }, \
-  { "ttf",   HTTP_CONTENT_TYPE("font/ttf") }, \
-  { "otf",   HTTP_CONTENT_TYPE("font/otf") }
-
 /** A list of extension-to-HTTP header strings (see outdated RFC 1700 MEDIA TYPES
  * and http://www.iana.org/assignments/media-types for registered content types
  * and subtypes) */
@@ -191,7 +180,15 @@ PROGMEM static const http_header_t httpd_headers[] = {
   { "xml",  HTTP_HDR_XML},
   { "xsl",  HTTP_HDR_XML},
   { "pdf",  HTTP_HDR_PDF},
-  { "gz", HTTP_HDR_GZIP}
+  { "gz", HTTP_HDR_GZIP},
+  { "wasm",  HTTP_HDR_WASM},
+  { "svg",   HTTP_HDR_SVG},
+  { "mjs",   HTTP_HDR_MJS},
+  { "map",   HTTP_HDR_MAP},
+  { "woff",  HTTP_HDR_WOFF},
+  { "woff2", HTTP_HDR_WOFF2},
+  { "ttf",   HTTP_HDR_TTF},
+  { "otf",   HTTP_HDR_OTF}
 #ifdef HTTPD_ADDITIONAL_CONTENT_TYPES
   /* If you need to add content types not listed here:
    * #define HTTPD_ADDITIONAL_CONTENT_TYPES {"ct1", HTTP_CONTENT_TYPE("text/ct1")}, {"exe", HTTP_CONTENT_TYPE("application/exe")}
@@ -863,10 +860,38 @@ static bool is_response_header_set (http_state_t *hs, const char *name)
 
 static void http_add_cors_headers (http_request_t *req)
 {
-    http_set_response_header(req, "Access-Control-Allow-Origin", "*");
-    http_set_response_header(req, "Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
-    http_set_response_header(req, "Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
-    http_set_response_header(req, "Access-Control-Max-Age", "86400");
+    http_state_t *hs = req->handle;
+
+    static const char hdr_cors_origin[]  = "Access-Control-Allow-Origin: *\r\n";
+    static const char hdr_cors_methods[] = "Access-Control-Allow-Methods: GET,POST,PUT,DELETE,OPTIONS\r\n";
+    static const char hdr_cors_headers[] = "Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With\r\n";
+    static const char hdr_cors_maxage[]  = "Access-Control-Max-Age: 86400\r\n";
+
+    const bool has_any_cors = is_response_header_set(hs, "Access-Control-");
+
+    if (hs->response_hdr.next < (NUM_FILE_HDR_STRINGS - 1) &&
+        (!has_any_cors || !is_response_header_set(hs, "Access-Control-Allow-Origin"))) {
+        hs->response_hdr.string[hs->response_hdr.next] = hdr_cors_origin;
+        hs->response_hdr.type[hs->response_hdr.next++] = HTTP_HeaderTypeROM;
+    }
+
+    if (hs->response_hdr.next < (NUM_FILE_HDR_STRINGS - 1) &&
+        (!has_any_cors || !is_response_header_set(hs, "Access-Control-Allow-Methods"))) {
+        hs->response_hdr.string[hs->response_hdr.next] = hdr_cors_methods;
+        hs->response_hdr.type[hs->response_hdr.next++] = HTTP_HeaderTypeROM;
+    }
+
+    if (hs->response_hdr.next < (NUM_FILE_HDR_STRINGS - 1) &&
+        (!has_any_cors || !is_response_header_set(hs, "Access-Control-Allow-Headers"))) {
+        hs->response_hdr.string[hs->response_hdr.next] = hdr_cors_headers;
+        hs->response_hdr.type[hs->response_hdr.next++] = HTTP_HeaderTypeROM;
+    }
+
+    if (hs->response_hdr.next < (NUM_FILE_HDR_STRINGS - 1) &&
+        (!has_any_cors || !is_response_header_set(hs, "Access-Control-Max-Age"))) {
+        hs->response_hdr.string[hs->response_hdr.next] = hdr_cors_maxage;
+        hs->response_hdr.type[hs->response_hdr.next++] = HTTP_HeaderTypeROM;
+    }
 }
 
 bool http_set_response_header (http_request_t *request, const char *name, const char *value)
@@ -1711,10 +1736,6 @@ static err_t http_parse_request (struct pbuf *inp, http_state_t *hs, struct altc
                 hs->response_hdr.next = HDR_STRINGS_IDX_CONTENT_NEXT;
 #endif /* LWIP_HTTPD_DYNAMIC_HEADERS */
 
-#if LWIP_HTTPD_DYNAMIC_HEADERS
-    http_add_cors_headers(&hs->request);
-#endif
-
                 if (hs->method == HTTP_Post) {
 
                     int content_len = -1;
@@ -1888,8 +1909,6 @@ static err_t http_process_request (http_state_t *hs, const char *uri)
 
                 http_set_response_status(&hs->request, "200 OK");
 
-                http_add_cors_headers(&hs->request);
-
                 if((allow = s2 = malloc(len + 1))) {
                     s1 = (char *)http_methods;
                     while(*s1 == ',')
@@ -2038,6 +2057,7 @@ static err_t http_init_file (http_state_t *hs, vfs_file_t *file, const char *uri
 #if LWIP_HTTPD_DYNAMIC_HEADERS
     /* Determine the HTTP headers to send based on the file extension of the requested URI. */
 //    if ((hs->handle == NULL) /* || ((hs->handle->flags & FS_FILE_FLAGS_HEADER_INCLUDED) == 0)*/)
+        http_add_cors_headers(&hs->request);
         get_http_headers(hs, uri);
 #else /* LWIP_HTTPD_DYNAMIC_HEADERS */
         LWIP_UNUSED_ARG(uri);
