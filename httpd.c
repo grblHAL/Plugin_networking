@@ -100,7 +100,7 @@
 #if LWIP_HTTPD_DYNAMIC_HEADERS
 
 /* The number of individual strings that comprise the headers sent before each requested file. */
-#define NUM_FILE_HDR_STRINGS            8
+#define NUM_FILE_HDR_STRINGS            16
 #define HDR_STRINGS_IDX_HTTP_STATUS     0 /* e.g. "HTTP/1.0 200 OK\r\n" */
 #define HDR_STRINGS_IDX_SERVER_NAME     1 /* e.g. "Server: "HTTPD_SERVER_AGENT"\r\n" */
 #define HDR_STRINGS_IDX_CONTENT_NEXT    2 /* the content type (or default answer content type including default document) */
@@ -149,6 +149,13 @@ typedef struct {
 #define HTTP_HDR_GZIP           HTTP_CONTENT_TYPE("application/gzip")
 #define HTTP_HDR_HTMLGZ         HTTP_CONTENT_TYPE_ENCODING("text/html; charset=UTF-8", "gzip")
 #define HTTP_HDR_SVGZ           HTTP_CONTENT_TYPE_ENCODING("image/svg+xml", "gzip")
+#define HTTP_HDR_WASM           HTTP_CONTENT_TYPE("application/wasm")
+#define HTTP_HDR_WOFF           HTTP_CONTENT_TYPE("font/woff")
+#define HTTP_HDR_WOFF2          HTTP_CONTENT_TYPE("font/woff2")
+#define HTTP_HDR_TTF            HTTP_CONTENT_TYPE("font/ttf")
+#define HTTP_HDR_OTF            HTTP_CONTENT_TYPE("font/otf")
+#define HTTP_HDR_MAP            HTTP_CONTENT_TYPE("application/json") /* sourcemap */
+#define HTTP_HDR_MJS            HTTP_CONTENT_TYPE("application/javascript")
 
 #define HTTP_HDR_DEFAULT_TYPE   HTTP_CONTENT_TYPE("text/plain")
 
@@ -173,7 +180,15 @@ PROGMEM static const http_header_t httpd_headers[] = {
   { "xml",  HTTP_HDR_XML},
   { "xsl",  HTTP_HDR_XML},
   { "pdf",  HTTP_HDR_PDF},
-  { "gz", HTTP_HDR_GZIP}
+  { "gz", HTTP_HDR_GZIP},
+  { "wasm",  HTTP_HDR_WASM},
+  { "svg",   HTTP_HDR_SVG},
+  { "mjs",   HTTP_HDR_MJS},
+  { "map",   HTTP_HDR_MAP},
+  { "woff",  HTTP_HDR_WOFF},
+  { "woff2", HTTP_HDR_WOFF2},
+  { "ttf",   HTTP_HDR_TTF},
+  { "otf",   HTTP_HDR_OTF}
 #ifdef HTTPD_ADDITIONAL_CONTENT_TYPES
   /* If you need to add content types not listed here:
    * #define HTTPD_ADDITIONAL_CONTENT_TYPES {"ct1", HTTP_CONTENT_TYPE("text/ct1")}, {"exe", HTTP_CONTENT_TYPE("application/exe")}
@@ -841,6 +856,42 @@ static bool is_response_header_set (http_state_t *hs, const char *name)
     } while(i && !is_set);
 
     return is_set;
+}
+
+static void http_add_cors_headers (http_request_t *req)
+{
+    http_state_t *hs = req->handle;
+
+    static const char hdr_cors_origin[]  = "Access-Control-Allow-Origin: *\r\n";
+    static const char hdr_cors_methods[] = "Access-Control-Allow-Methods: GET,POST,PUT,DELETE,OPTIONS\r\n";
+    static const char hdr_cors_headers[] = "Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With\r\n";
+    static const char hdr_cors_maxage[]  = "Access-Control-Max-Age: 86400\r\n";
+
+    const bool has_any_cors = is_response_header_set(hs, "Access-Control-");
+
+    if (hs->response_hdr.next < (NUM_FILE_HDR_STRINGS - 1) &&
+        (!has_any_cors || !is_response_header_set(hs, "Access-Control-Allow-Origin"))) {
+        hs->response_hdr.string[hs->response_hdr.next] = hdr_cors_origin;
+        hs->response_hdr.type[hs->response_hdr.next++] = HTTP_HeaderTypeROM;
+    }
+
+    if (hs->response_hdr.next < (NUM_FILE_HDR_STRINGS - 1) &&
+        (!has_any_cors || !is_response_header_set(hs, "Access-Control-Allow-Methods"))) {
+        hs->response_hdr.string[hs->response_hdr.next] = hdr_cors_methods;
+        hs->response_hdr.type[hs->response_hdr.next++] = HTTP_HeaderTypeROM;
+    }
+
+    if (hs->response_hdr.next < (NUM_FILE_HDR_STRINGS - 1) &&
+        (!has_any_cors || !is_response_header_set(hs, "Access-Control-Allow-Headers"))) {
+        hs->response_hdr.string[hs->response_hdr.next] = hdr_cors_headers;
+        hs->response_hdr.type[hs->response_hdr.next++] = HTTP_HeaderTypeROM;
+    }
+
+    if (hs->response_hdr.next < (NUM_FILE_HDR_STRINGS - 1) &&
+        (!has_any_cors || !is_response_header_set(hs, "Access-Control-Max-Age"))) {
+        hs->response_hdr.string[hs->response_hdr.next] = hdr_cors_maxage;
+        hs->response_hdr.type[hs->response_hdr.next++] = HTTP_HeaderTypeROM;
+    }
 }
 
 bool http_set_response_header (http_request_t *request, const char *name, const char *value)
@@ -2006,6 +2057,7 @@ static err_t http_init_file (http_state_t *hs, vfs_file_t *file, const char *uri
 #if LWIP_HTTPD_DYNAMIC_HEADERS
     /* Determine the HTTP headers to send based on the file extension of the requested URI. */
 //    if ((hs->handle == NULL) /* || ((hs->handle->flags & FS_FILE_FLAGS_HEADER_INCLUDED) == 0)*/)
+        http_add_cors_headers(&hs->request);
         get_http_headers(hs, uri);
 #else /* LWIP_HTTPD_DYNAMIC_HEADERS */
         LWIP_UNUSED_ARG(uri);
