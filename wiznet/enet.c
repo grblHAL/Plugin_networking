@@ -66,6 +66,7 @@
 
 extern uint8_t mac[6];
 
+static bool dhcp = false;
 static char IPAddress[IP4ADDR_STRLEN_MAX], if_name[NETIF_NAMESIZE] = "";
 static stream_type_t active_stream = StreamType_Null;
 static network_services_t services = {0}, allowed_services;
@@ -102,6 +103,7 @@ static network_info_t *get_info (const char *interface)
         info.interface = (const char *)if_name;
         info.is_ethernet = true;
         info.link_up = network_status.link_up;
+        info.dhcp = dhcp;
         info.mbps = 100;
         info.status.services = services;
         *info.mac = *info.status.ip = *info.status.gateway = *info.status.mask = '\0';
@@ -227,6 +229,13 @@ static void netif_status_callback (struct netif *netif)
 #endif
 
     ip4addr_ntoa_r(netif_ip_addr4(netif), IPAddress, IP4ADDR_STRLEN_MAX);
+
+    if(network.ip_mode == IpMode_Static && !dhcp) {
+
+        static dhcp_server_t dhcp_data;
+
+        dhcp = dhcp_server_init(&dhcp_data, (ip_addr_t *)&network.ip, (ip_addr_t *)&network.mask);
+    }
 
 #if TELNET_ENABLE
     if(network.services.telnet && !services.telnet)

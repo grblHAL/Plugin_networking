@@ -1,12 +1,12 @@
 //
 // networking.c - some shared networking code
 //
-// v1.9 / 2025-02-20 / Io Engineering / Terje
+// v2.1 / 2026-01-24 / Io Engineering / Terje
 //
 
 /*
 
-Copyright (c) 2021-2025, Terje Io
+Copyright (c) 2021-2026, Terje Io
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -193,6 +193,8 @@ static bool if_enumerate (network_info_t *info, network_flags_t flags, void *dat
 
         if(info->status.services.mask) {
             strcat(buf, " Listening=");
+            if(info->dhcp)
+                add_sep = add_port(buf, 67, add_sep);
             if(info->status.services.ftp)
                 add_sep = add_port(buf, info->status.ftp_port, add_sep);
             if(info->status.services.telnet)

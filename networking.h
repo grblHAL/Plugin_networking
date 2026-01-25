@@ -1,12 +1,12 @@
 //
 // networking.h - some shared networking code
 //
-// v2.0 / 2025-04-30 / Io Engineering / Terje
+// v2.1 / 2026-01-24 / Io Engineering / Terje
 //
 
 /*
 
-Copyright (c) 2019-2025, Terje Io
+Copyright (c) 2019-2026, Terje Io
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -93,11 +93,12 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #if WEBDAV_ENABLE
 #include "webdav.h"
 #endif
-
 #if SSDP_ENABLE
 #include "networking/ssdp.h"
 #endif
-#endif
+#endif // HTTP_ENABLE
+
+#include "dhcpserver.h"
 
 #if MODBUS_ENABLE & MODBUS_TCP_ENABLED
 #include "modbus/client.h"

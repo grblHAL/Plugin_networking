@@ -6,7 +6,7 @@
 
 /*
 
-Copyright (c) 2022, Terje Io
+Copyright (c) 2022-2026, Terje Io
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -527,9 +527,9 @@ static err_t dav_process_request (http_request_t *request, http_method_t method,
 static void dav_on_options_report (http_request_t *request)
 {
 #if WEBDAV_ENABLE_LOCK
-    http_set_response_header(request, "DAV", "1,2");
+    http_set_rom_response_header(request, "DAV: 1,2");
 #else
-    http_set_response_header(request, "DAV", "1");
+    http_set_rom_response_header(request, "DAV: 1");
 #endif
 }
 

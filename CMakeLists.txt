@@ -3,6 +3,7 @@ add_library(networking INTERFACE)
 target_sources(networking INTERFACE
  ${CMAKE_CURRENT_LIST_DIR}/base64.c
  ${CMAKE_CURRENT_LIST_DIR}/cJSON.c
+ ${CMAKE_CURRENT_LIST_DIR}/dhcpserver.c
  ${CMAKE_CURRENT_LIST_DIR}/fs_ram.c
  ${CMAKE_CURRENT_LIST_DIR}/fs_stream.c
  ${CMAKE_CURRENT_LIST_DIR}/ftpd.c

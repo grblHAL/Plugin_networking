@@ -40,6 +40,7 @@
  * 2022-08-14: Modified by Terje Io for grblHAL networking.
  * 2022-08-27: Modified by Terje Io for grblHAL VFS
  * 2025-02-24: Modified by Terje Io to improve handling of content encoding
+ * 2026-01-25: Modified by @papyDoctor && Terje Io for CORS support, additional content types and bug fixes
  */
 
 /**
@@ -97,10 +98,14 @@
 
 /**/
 
+#define CRLF "\r\n"
+
 #if LWIP_HTTPD_DYNAMIC_HEADERS
 
 /* The number of individual strings that comprise the headers sent before each requested file. */
-#define NUM_FILE_HDR_STRINGS            16
+#ifndef LWIP_HTTPD_NUM_FILE_HDR_STRINGS
+#define LWIP_HTTPD_NUM_FILE_HDR_STRINGS 12
+#endif
 #define HDR_STRINGS_IDX_HTTP_STATUS     0 /* e.g. "HTTP/1.0 200 OK\r\n" */
 #define HDR_STRINGS_IDX_SERVER_NAME     1 /* e.g. "Server: "HTTPD_SERVER_AGENT"\r\n" */
 #define HDR_STRINGS_IDX_CONTENT_NEXT    2 /* the content type (or default answer content type including default document) */
@@ -114,9 +119,9 @@
 
 // Keep in sync with http_encoding_t!
 static const char *httpd_encodings[] = {
-    "Content-Encoding: compress\r\n",
-    "Content-Encoding: deflate\r\n",
-    "Content-Encoding: gzip\r\n"
+    "Content-Encoding: compress" CRLF,
+    "Content-Encoding: deflate" CRLF,
+    "Content-Encoding: gzip" CRLF
 };
 
 /** This struct is used for a list of HTTP header strings for various filename extensions. */
@@ -222,8 +227,8 @@ typedef enum {
 } http_headertype_t;
 
 typedef struct {
-    const char *string[NUM_FILE_HDR_STRINGS]; /* HTTP headers to be sent. */
-    http_headertype_t type[NUM_FILE_HDR_STRINGS]; /* HTTP headers to be sent. */
+    const char *string[LWIP_HTTPD_NUM_FILE_HDR_STRINGS]; /* HTTP headers to be sent. */
+    http_headertype_t type[LWIP_HTTPD_NUM_FILE_HDR_STRINGS]; /* HTTP headers to be sent. */
     char content_len[LWIP_HTTPD_MAX_CONTENT_LEN_SIZE];
     u16_t pos;     /* The position of the first unsent header byte in the current string */
     u16_t index;   /* The index of the hdr string currently being sent. */
@@ -289,7 +294,6 @@ struct http_state {
 /** Minimum length for a valid HTTP/0.9 request: "GET /\r\n" -> 7 bytes */
 #define MIN_REQ_LEN   7
 
-#define CRLF "\r\n"
 #if LWIP_HTTPD_SUPPORT_11_KEEPALIVE
 #define HTTP11_CONNECTIONKEEPALIVE  "Connection: keep-alive"
 #define HTTP11_CONNECTIONKEEPALIVE2 "Connection: Keep-Alive"
@@ -497,7 +501,7 @@ static void http_state_init (http_state_t *hs)
 
 #if LWIP_HTTPD_DYNAMIC_HEADERS
     /* Indicate that the headers are not yet valid */
-    hs->response_hdr.index = NUM_FILE_HDR_STRINGS;
+    hs->response_hdr.index = LWIP_HTTPD_NUM_FILE_HDR_STRINGS;
 #endif /* LWIP_HTTPD_DYNAMIC_HEADERS */
 }
 
@@ -537,7 +541,7 @@ static void http_state_eof (http_state_t *hs)
         hs->handle = NULL;
     }
 
-    uint_fast8_t i = NUM_FILE_HDR_STRINGS;
+    uint_fast8_t i = LWIP_HTTPD_NUM_FILE_HDR_STRINGS;
     do {
         i--;
         if (hs->response_hdr.type[i] == HTTP_HeaderTypeAllocated && hs->response_hdr.string[i])
@@ -559,6 +563,12 @@ static void http_state_eof (http_state_t *hs)
     }
 }
 
+/**
+ * Set allowed methods, the list must match the /a http_method_t enum
+ * with empty entries for unsupported methods.
+ *
+ * @param comma separated list of methods.
+ */
 void http_set_allowed_methods (const char *methods)
 {
     http_methods = methods;
@@ -845,53 +855,30 @@ static uint_fast8_t extract_uri_parameters (http_state_t *hs, char *params)
 
 #if LWIP_HTTPD_DYNAMIC_HEADERS
 
-static bool is_response_header_set (http_state_t *hs, const char *name)
+static bool is_response_header_set (http_state_t *hs, const char *hdr)
 {
     bool is_set = false;
 
-    uint_fast8_t i = NUM_FILE_HDR_STRINGS, len = strlen(name);
+    uint_fast8_t i = LWIP_HTTPD_NUM_FILE_HDR_STRINGS, len = strchr(hdr, ':') ? strchr(hdr, ':') - hdr : strlen(hdr);
     do {
         i--;
-        is_set = hs->response_hdr.string[i] && !strncmp(name, hs->response_hdr.string[i], len);
+        is_set = hs->response_hdr.string[i] && !strncmp(hdr, hs->response_hdr.string[i], len);
     } while(i && !is_set);
 
     return is_set;
 }
 
-static void http_add_cors_headers (http_request_t *req)
+bool http_set_rom_response_header (http_request_t *request, const char *hdr)
 {
-    http_state_t *hs = req->handle;
+    bool ok;
+    http_state_t *hs = request->handle;
 
-    static const char hdr_cors_origin[]  = "Access-Control-Allow-Origin: *\r\n";
-    static const char hdr_cors_methods[] = "Access-Control-Allow-Methods: GET,POST,PUT,DELETE,OPTIONS\r\n";
-    static const char hdr_cors_headers[] = "Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With\r\n";
-    static const char hdr_cors_maxage[]  = "Access-Control-Max-Age: 86400\r\n";
-
-    const bool has_any_cors = is_response_header_set(hs, "Access-Control-");
-
-    if (hs->response_hdr.next < (NUM_FILE_HDR_STRINGS - 1) &&
-        (!has_any_cors || !is_response_header_set(hs, "Access-Control-Allow-Origin"))) {
-        hs->response_hdr.string[hs->response_hdr.next] = hdr_cors_origin;
+    if((ok = hs->response_hdr.next < (LWIP_HTTPD_NUM_FILE_HDR_STRINGS - 1) && !is_response_header_set(hs, hdr))) {
+        hs->response_hdr.string[hs->response_hdr.next] = hdr;
         hs->response_hdr.type[hs->response_hdr.next++] = HTTP_HeaderTypeROM;
     }
 
-    if (hs->response_hdr.next < (NUM_FILE_HDR_STRINGS - 1) &&
-        (!has_any_cors || !is_response_header_set(hs, "Access-Control-Allow-Methods"))) {
-        hs->response_hdr.string[hs->response_hdr.next] = hdr_cors_methods;
-        hs->response_hdr.type[hs->response_hdr.next++] = HTTP_HeaderTypeROM;
-    }
-
-    if (hs->response_hdr.next < (NUM_FILE_HDR_STRINGS - 1) &&
-        (!has_any_cors || !is_response_header_set(hs, "Access-Control-Allow-Headers"))) {
-        hs->response_hdr.string[hs->response_hdr.next] = hdr_cors_headers;
-        hs->response_hdr.type[hs->response_hdr.next++] = HTTP_HeaderTypeROM;
-    }
-
-    if (hs->response_hdr.next < (NUM_FILE_HDR_STRINGS - 1) &&
-        (!has_any_cors || !is_response_header_set(hs, "Access-Control-Max-Age"))) {
-        hs->response_hdr.string[hs->response_hdr.next] = hdr_cors_maxage;
-        hs->response_hdr.type[hs->response_hdr.next++] = HTTP_HeaderTypeROM;
-    }
+    return ok;
 }
 
 bool http_set_response_header (http_request_t *request, const char *name, const char *value)
@@ -899,7 +886,7 @@ bool http_set_response_header (http_request_t *request, const char *name, const 
     bool ok;
     http_state_t *hs = request->handle;
 
-    if((ok = hs->response_hdr.next < (NUM_FILE_HDR_STRINGS - 1))) {
+    if((ok = hs->response_hdr.next < (LWIP_HTTPD_NUM_FILE_HDR_STRINGS - 1))) {
 
         char *hdr;
 
@@ -934,7 +921,7 @@ indicative of a 404 server error whereas all other files require
 the 200 OK header. */
 static void set_content_type (http_state_t *hs, const char *uri)
 {
-    if(!is_response_header_set(hs, "Content-Type") && hs->response_hdr.next < NUM_FILE_HDR_STRINGS) {
+    if(!is_response_header_set(hs, "Content-Type") && hs->response_hdr.next < LWIP_HTTPD_NUM_FILE_HDR_STRINGS) {
 
         char *end, *ext;
         bool ext_found = false;
@@ -981,12 +968,42 @@ static void set_content_type (http_state_t *hs, const char *uri)
     }
 }
 
+static void http_add_cors_headers (http_request_t *req)
+{
+    http_state_t *hs = req->handle;
+
+    PROGMEM static const char hdr_cors_origin[]  = "Access-Control-Allow-Origin: *" CRLF;
+    PROGMEM static const char hdr_cors_headers[] = "Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With" CRLF;
+    PROGMEM static const char hdr_cors_maxage[]  = "Access-Control-Max-Age: 86400" CRLF;
+    PROGMEM static const char hdr_cors_methods[] = "Access-Control-Allow-Methods";
+#if LWIP_HTTPD_SUPPORT_POST
+    PROGMEM static const char hdr_cors_methods2[] = "Access-Control-Allow-Methods: HEAD,GET,POST,OPTIONS" CRLF;
+#else
+    PROGMEM static const char hdr_cors_methods2[] = "Access-Control-Allow-Methods: HEAD,GET,OPTIONS" CRLF;
+#endif
+
+    if(!is_response_header_set(hs, "Access-Control-")) {
+
+        char *allow;
+
+        http_set_rom_response_header(&hs->request, hdr_cors_origin);
+        http_set_rom_response_header(&hs->request, hdr_cors_headers);
+        http_set_rom_response_header(&hs->request, hdr_cors_maxage);
+
+        if((allow = http_get_allowed_methods())) {
+            http_set_response_header(&hs->request, hdr_cors_methods, allow);
+            free(allow);
+        } else
+            http_set_rom_response_header(&hs->request, hdr_cors_methods2);
+    }
+}
+
 /* Add content-length header? */
 static void get_http_content_length (http_state_t *hs, int file_len)
 {
     bool add_content_len = false;
 
-    if ((add_content_len = file_len >= 0 && hs->response_hdr.next < (NUM_FILE_HDR_STRINGS - 1))) {
+    if ((add_content_len = file_len >= 0 && hs->response_hdr.next < (LWIP_HTTPD_NUM_FILE_HDR_STRINGS - 1))) {
         size_t len;
         lwip_itoa(hs->response_hdr.content_len, (size_t)LWIP_HTTPD_MAX_CONTENT_LEN_SIZE, file_len);
         len = strlen(hs->response_hdr.content_len);
@@ -1087,7 +1104,7 @@ static http_send_state_t http_send_headers (struct altcp_pcb *pcb, http_state_t 
     /* How much data can we send? */
     len = sendlen = altcp_sndbuf(pcb);
 
-    while (len && (hs->response_hdr.index < NUM_FILE_HDR_STRINGS) && sendlen) {
+    while (len && (hs->response_hdr.index < LWIP_HTTPD_NUM_FILE_HDR_STRINGS) && sendlen) {
         const void *ptr;
         u16_t old_sendlen;
         u8_t apiflags;
@@ -1107,7 +1124,7 @@ static http_send_state_t http_send_headers (struct altcp_pcb *pcb, http_state_t 
             apiflags |= TCP_WRITE_FLAG_COPY;
         }
 
-        if (hs->response_hdr.index < NUM_FILE_HDR_STRINGS - 1)
+        if (hs->response_hdr.index < LWIP_HTTPD_NUM_FILE_HDR_STRINGS - 1)
             apiflags |= TCP_WRITE_FLAG_MORE;
 
         if (((err = http_write(pcb, ptr, &sendlen, apiflags)) == ERR_OK) && (old_sendlen != sendlen)) {
@@ -1127,14 +1144,14 @@ static http_send_state_t http_send_headers (struct altcp_pcb *pcb, http_state_t 
             /* Yes - move on to the next one */
             hs->response_hdr.index++;
             /* skip headers that are NULL (not all headers are required) */
-            while ((hs->response_hdr.index < NUM_FILE_HDR_STRINGS) && (hs->response_hdr.string[hs->response_hdr.index] == NULL)) {
+            while ((hs->response_hdr.index < LWIP_HTTPD_NUM_FILE_HDR_STRINGS) && (hs->response_hdr.string[hs->response_hdr.index] == NULL)) {
                 hs->response_hdr.index++;
             }
             hs->response_hdr.pos = 0;
         }
     }
 
-    if ((hs->response_hdr.index >= NUM_FILE_HDR_STRINGS) && (hs->file == NULL)) {
+    if ((hs->response_hdr.index >= LWIP_HTTPD_NUM_FILE_HDR_STRINGS) && (hs->file == NULL)) {
         /* When we are at the end of the headers, check for data to send
         * instead of waiting for ACK from remote side to continue
         * (which would happen when sending files from async read). */
@@ -1150,7 +1167,7 @@ static http_send_state_t http_send_headers (struct altcp_pcb *pcb, http_state_t 
     * the header information we just wrote immediately. If there are no
     * more headers to send, but we do have file data to send, drop through
     * to try to send some file data too. */
-    if ((hs->response_hdr.index < NUM_FILE_HDR_STRINGS) || !hs->file) {
+    if ((hs->response_hdr.index < LWIP_HTTPD_NUM_FILE_HDR_STRINGS) || !hs->file) {
         LWIP_DEBUGF(HTTPD_DEBUG, ("tcp_output\n"));
         return HTTPSend_Break;
     }
@@ -1331,9 +1348,9 @@ static http_send_state_t http_send (struct altcp_pcb *pcb, http_state_t *hs)
 
 #if LWIP_HTTPD_DYNAMIC_HEADERS
     /* Do we have any more header data to send for this file? */
-    if (hs->response_hdr.index < NUM_FILE_HDR_STRINGS) {
+    if (hs->response_hdr.index < LWIP_HTTPD_NUM_FILE_HDR_STRINGS) {
         data_to_send = http_send_headers(pcb, hs);
-        if ((data_to_send == HTTPSend_Freed) || ((data_to_send != HTTPSend_Continue) && (hs->response_hdr.index < NUM_FILE_HDR_STRINGS)))
+        if ((data_to_send == HTTPSend_Freed) || ((data_to_send != HTTPSend_Continue) && (hs->response_hdr.index < LWIP_HTTPD_NUM_FILE_HDR_STRINGS)))
             return data_to_send;
     }
 #endif /* LWIP_HTTPD_DYNAMIC_HEADERS */
@@ -1732,7 +1749,7 @@ static err_t http_parse_request (struct pbuf *inp, http_state_t *hs, struct altc
 #if LWIP_HTTPD_DYNAMIC_HEADERS
                 memset(&hs->response_hdr, 0, sizeof(http_headers_t));
                 hs->response_hdr.string[HDR_STRINGS_IDX_SERVER_NAME] = agent;   // In all cases, the second header we send is the server identification so set it here.
-                hs->response_hdr.index = NUM_FILE_HDR_STRINGS;                  // Indicate that the headers are not yet valid
+                hs->response_hdr.index = LWIP_HTTPD_NUM_FILE_HDR_STRINGS;       // Indicate that the headers are not yet valid
                 hs->response_hdr.next = HDR_STRINGS_IDX_CONTENT_NEXT;
 #endif /* LWIP_HTTPD_DYNAMIC_HEADERS */
 
@@ -1782,6 +1799,45 @@ static err_t http_parse_request (struct pbuf *inp, http_state_t *hs, struct altc
         /* could not parse request */
         return http_find_error_file(hs, 400);
     }
+}
+
+/** Try to get the allowed HTTP methods.
+ * The returned string has to be freed by the caller after use.
+ * @return comma separated list of methods or NULL if not successful
+ */
+char *http_get_allowed_methods (void)
+{
+    char c, *s1, *s2, *allow;
+    uint32_t len = strlen(http_methods);
+
+    if((allow = s2 = malloc(len + 1))) {
+        s1 = (char *)http_methods;
+        while(*s1 == ',')
+            s1++;
+
+        while((c = *s1++)) {
+            if(!(c == ',' && *s1 == ','))
+                *s2++ = c;
+        }
+        *s2 = '\0';
+    }
+
+    return allow;
+}
+
+static const char *http_call_handler (http_state_t *hs, const httpd_uri_handler_t *uri_handler, const char *uri, char *params)
+{
+    if(params)
+        *params = '\0'; /* URI contains parameters. NULL-terminate the base URI */
+
+    hs->uri = uri + strlen(uri_handler->uri) - (strchr(uri_handler->uri, '*') ? 2 : 0);
+
+    if(xSemaphoreTake(handler_mux, portMAX_DELAY) == pdTRUE) {
+        uri = uri_handler->handler(&hs->request);
+        xSemaphoreGive(handler_mux);
+    }
+
+    return uri;
 }
 
 /** Try to find the file specified by uri and, if found, initialize hs accordingly.
@@ -1891,62 +1947,46 @@ static err_t http_process_request (http_state_t *hs, const char *uri)
                 }
             } 
 
-            if(file == NULL && uri_handler) {
-                if(params)
-                    *params = '\0'; /* URI contains parameters. NULL-terminate the base URI */
-                hs->uri = uri + strlen(uri_handler->uri) - 2;
-                if(xSemaphoreTake(handler_mux, portMAX_DELAY) == pdTRUE) {
-                    uri = uri_handler->handler(&hs->request);
-                    xSemaphoreGive(handler_mux);
-                }
-            }
+            if(file == NULL && uri_handler)
+                uri = http_call_handler(hs, uri_handler, uri, params);
             break;
 
         case HTTP_Options:
-            {
-                char c, *s1, *s2, *allow;
-                uint32_t len = strlen(http_methods);
+            if(uri_handler)
+                uri = http_call_handler(hs, uri_handler, uri, params);
+            else {
 
                 http_set_response_status(&hs->request, "200 OK");
 
-                if((allow = s2 = malloc(len + 1))) {
-                    s1 = (char *)http_methods;
-                    while(*s1 == ',')
-                        s1++;
+                if(http_get_header_value_len(&hs->request, "Access-Control-Request-Method") >= 0)
+                    http_add_cors_headers(&hs->request);
+                else {
 
-                    while((c = *s1++)) {
-                        if(!(c == ',' && *s1 == ','))
-                            *s2++ = c;
-                    }
-                    *s2 = '\0';
+                    char *allow;
 
-                    http_set_response_header(&hs->request, "Allow", allow);
-                    free(allow);
-                } else {
+                    if((allow = http_get_allowed_methods())) {
+                        http_set_response_header(&hs->request, "Allow", allow);
+                        free(allow);
+                    } else {
 #if LWIP_HTTPD_SUPPORT_POST
-                    http_set_response_header(&hs->request, "Allow", "GET,POST,OPTIONS");
+                        http_set_rom_response_header(&hs->request, "Allow: HEAD,GET,POST,OPTIONS");
 #else
-                    http_set_response_header(&hs->request, "Allow", "GET,OPTIONS");
+                        http_set_rom_response_header(&hs->request, "Allow: HEAD,GET,OPTIONS");
 #endif
+                    }
                 }
-
-                if(httpd.on_options_report)
-                    httpd.on_options_report(&hs->request);
             }
+
+            if(httpd.on_options_report)
+                httpd.on_options_report(&hs->request);
 
             return http_init_file(hs, NULL, uri, params); //ERR_OK;
             break;
 
         default:
-            if(uri_handler) {
-                if(params)
-                    *params = '\0'; /* URI contains parameters. NULL-terminate the base URI */
-                hs->uri = uri + strlen(uri_handler->uri) - 2;
-                if(xSemaphoreTake(handler_mux, portMAX_DELAY) == pdTRUE) {
-                    uri = uri_handler->handler(&hs->request);
-                    xSemaphoreGive(handler_mux);
-                }
-            } else if(httpd.on_unknown_method_process) {
+            if(uri_handler)
+                uri = http_call_handler(hs, uri_handler, uri, params);
+            else if(httpd.on_unknown_method_process) {
 
                 size_t uri_len = strlen(uri);
                 if(uri_len > 0) {
@@ -2057,7 +2097,8 @@ static err_t http_init_file (http_state_t *hs, vfs_file_t *file, const char *uri
 #if LWIP_HTTPD_DYNAMIC_HEADERS
     /* Determine the HTTP headers to send based on the file extension of the requested URI. */
 //    if ((hs->handle == NULL) /* || ((hs->handle->flags & FS_FILE_FLAGS_HEADER_INCLUDED) == 0)*/)
-        http_add_cors_headers(&hs->request);
+        if(hs->method != HTTP_Options)
+            http_add_cors_headers(&hs->request);
         get_http_headers(hs, uri);
 #else /* LWIP_HTTPD_DYNAMIC_HEADERS */
         LWIP_UNUSED_ARG(uri);
