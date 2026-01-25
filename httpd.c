@@ -98,7 +98,7 @@
 
 /**/
 
-#define CRLF "\r\n"
+#define HTTP_EOL "\r\n"
 
 #if LWIP_HTTPD_DYNAMIC_HEADERS
 
@@ -110,7 +110,7 @@
 #define HDR_STRINGS_IDX_SERVER_NAME     1 /* e.g. "Server: "HTTPD_SERVER_AGENT"\r\n" */
 #define HDR_STRINGS_IDX_CONTENT_NEXT    2 /* the content type (or default answer content type including default document) */
 
-/* The dynamically generated Content-Length buffer needs space for CRLF + CRLF + NULL */
+/* The dynamically generated Content-Length buffer needs space for HTTP_EOL + HTTP_EOL + NULL */
 #define LWIP_HTTPD_MAX_CONTENT_LEN_OFFSET 5
 #ifndef LWIP_HTTPD_MAX_CONTENT_LEN_SIZE
 /* The dynamically generated Content-Length buffer shall be able to work with ~953 MB (9 digits) */
@@ -119,9 +119,9 @@
 
 // Keep in sync with http_encoding_t!
 static const char *httpd_encodings[] = {
-    "Content-Encoding: compress" CRLF,
-    "Content-Encoding: deflate" CRLF,
-    "Content-Encoding: gzip" CRLF
+    "Content-Encoding: compress" HTTP_EOL,
+    "Content-Encoding: deflate" HTTP_EOL,
+    "Content-Encoding: gzip" HTTP_EOL
 };
 
 /** This struct is used for a list of HTTP header strings for various filename extensions. */
@@ -371,16 +371,16 @@ PROGMEM static const default_filename httpd_default_filenames[] = {
 
 http_event_t httpd = {0};
 
-PROGMEM static const char msg200[] = "HTTP/1.1 200 OK" CRLF;
-PROGMEM static const char msg400[] = "HTTP/1.1 400 Bad Request" CRLF;
-PROGMEM static const char msg404[] = "HTTP/1.1 404 File not found" CRLF;
-PROGMEM static const char msg501[] = "HTTP/1.1 501 Not Implemented" CRLF;
-PROGMEM static const char agent[] = "Server: " HTTPD_SERVER_AGENT CRLF;
-PROGMEM static const char conn_close[] = "Connection: Close" CRLF CRLF;
-PROGMEM static const char conn_keep[] = "Connection: keep-alive" CRLF CRLF;
-PROGMEM static const char conn_keep2[] = "Connection: keep-alive" CRLF "Content-Length: ";
+PROGMEM static const char msg200[] = "HTTP/1.1 200 OK" HTTP_EOL;
+PROGMEM static const char msg400[] = "HTTP/1.1 400 Bad Request" HTTP_EOL;
+PROGMEM static const char msg404[] = "HTTP/1.1 404 File not found" HTTP_EOL;
+PROGMEM static const char msg501[] = "HTTP/1.1 501 Not Implemented" HTTP_EOL;
+PROGMEM static const char agent[] = "Server: " HTTPD_SERVER_AGENT HTTP_EOL;
+PROGMEM static const char conn_close[] = "Connection: Close" HTTP_EOL HTTP_EOL;
+PROGMEM static const char conn_keep[] = "Connection: keep-alive" HTTP_EOL HTTP_EOL;
+PROGMEM static const char conn_keep2[] = "Connection: keep-alive" HTTP_EOL "Content-Length: ";
 //static const char cont_len[] = "Content-Length: ";
-PROGMEM static const char rsp404[] = "<html><body><h2>404: The requested file cannot be found.</h2></body></html>" CRLF;
+PROGMEM static const char rsp404[] = "<html><body><h2>404: The requested file cannot be found.</h2></body></html>" HTTP_EOL;
 static const char *http_methods = HTTP_METHODS;
 static SemaphoreHandle_t handler_mux;
 
@@ -636,7 +636,7 @@ int http_get_header_value_len (http_request_t *request, const char *name)
             hdr++;
             if(*hdr == ' ')
                 hdr++;
-            if ((end = lwip_strnstr(hdr, CRLF, hs->hdr_len)))
+            if ((end = lwip_strnstr(hdr, HTTP_EOL, hs->hdr_len)))
                 len = end - hdr;
         }
     }
@@ -657,7 +657,7 @@ char *http_get_header_value (http_request_t *request, const char *name, char *va
             hdr++;
             if(*hdr == ' ')
                 hdr++;
-            if ((end = lwip_strnstr(hdr, CRLF, size + 2)) && end - hdr <= size) {
+            if ((end = lwip_strnstr(hdr, HTTP_EOL, size + 2)) && end - hdr <= size) {
                 len = end - hdr;
                 memcpy(value, hdr, len);
                 value[len] = '\0';
@@ -891,7 +891,7 @@ bool http_set_response_header (http_request_t *request, const char *name, const 
         char *hdr;
 
         if((hdr = mem_malloc(strlen(name) + strlen(value) + 5))) {
-            strcat(strcat(strcat(strcpy(hdr, name), ": "), value), CRLF);
+            strcat(strcat(strcat(strcpy(hdr, name), ": "), value), HTTP_EOL);
             hs->response_hdr.string[hs->response_hdr.next] = hdr;
             hs->response_hdr.type[hs->response_hdr.next++] = HTTP_HeaderTypeAllocated;
         } else
@@ -908,7 +908,7 @@ void http_set_response_status (http_request_t *request, const char *status)
     char *hdr;
 
     if(status && (hdr = mem_malloc(strlen(status) + 12))) {
-        strcat(strcat(strcpy(hdr, "HTTP/1.1 "), status), CRLF);
+        strcat(strcat(strcpy(hdr, "HTTP/1.1 "), status), HTTP_EOL);
         hs->response_hdr.string[HDR_STRINGS_IDX_HTTP_STATUS] = hdr;
         hs->response_hdr.type[HDR_STRINGS_IDX_HTTP_STATUS] = HTTP_HeaderTypeAllocated;
     }
@@ -972,14 +972,14 @@ static void http_add_cors_headers (http_request_t *req)
 {
     http_state_t *hs = req->handle;
 
-    PROGMEM static const char hdr_cors_origin[]  = "Access-Control-Allow-Origin: *" CRLF;
-    PROGMEM static const char hdr_cors_headers[] = "Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With" CRLF;
-    PROGMEM static const char hdr_cors_maxage[]  = "Access-Control-Max-Age: 86400" CRLF;
+    PROGMEM static const char hdr_cors_origin[]  = "Access-Control-Allow-Origin: *" HTTP_EOL;
+    PROGMEM static const char hdr_cors_headers[] = "Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With" HTTP_EOL;
+    PROGMEM static const char hdr_cors_maxage[]  = "Access-Control-Max-Age: 86400" HTTP_EOL;
     PROGMEM static const char hdr_cors_methods[] = "Access-Control-Allow-Methods";
 #if LWIP_HTTPD_SUPPORT_POST
-    PROGMEM static const char hdr_cors_methods2[] = "Access-Control-Allow-Methods: HEAD,GET,POST,OPTIONS" CRLF;
+    PROGMEM static const char hdr_cors_methods2[] = "Access-Control-Allow-Methods: HEAD,GET,POST,OPTIONS" HTTP_EOL;
 #else
-    PROGMEM static const char hdr_cors_methods2[] = "Access-Control-Allow-Methods: HEAD,GET,OPTIONS" CRLF;
+    PROGMEM static const char hdr_cors_methods2[] = "Access-Control-Allow-Methods: HEAD,GET,OPTIONS" HTTP_EOL;
 #endif
 
     if(!is_response_header_set(hs, "Access-Control-")) {
@@ -1008,7 +1008,7 @@ static void get_http_content_length (http_state_t *hs, int file_len)
         lwip_itoa(hs->response_hdr.content_len, (size_t)LWIP_HTTPD_MAX_CONTENT_LEN_SIZE, file_len);
         len = strlen(hs->response_hdr.content_len);
         if ((add_content_len = len <= LWIP_HTTPD_MAX_CONTENT_LEN_SIZE - LWIP_HTTPD_MAX_CONTENT_LEN_OFFSET)) {
-            SMEMCPY(&hs->response_hdr.content_len[len], CRLF CRLF, 5);
+            SMEMCPY(&hs->response_hdr.content_len[len], HTTP_EOL HTTP_EOL, 5);
             hs->response_hdr.string[hs->response_hdr.next + 1] = hs->response_hdr.content_len;
             hs->response_hdr.type[hs->response_hdr.next + 1] = HTTP_HeaderTypeVolatile;
         }
@@ -1687,12 +1687,12 @@ static err_t http_parse_request (struct pbuf *inp, http_state_t *hs, struct altc
         }
     }
 
-    /* received enough data for minimal request and at least one CRLF? */
-    if (data_len >= MIN_REQ_LEN && lwip_strnstr(data, CRLF, data_len)) {
+    /* received enough data for minimal request and at least one HTTP_EOL? */
+    if (data_len >= MIN_REQ_LEN && lwip_strnstr(data, HTTP_EOL, data_len)) {
 
         char *sp1, *sp2;
         u16_t left_len, uri_len;
-        LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("CRLF received, parsing request\n"));
+        LWIP_DEBUGF(HTTPD_DEBUG | LWIP_DBG_TRACE, ("HTTP_EOL received, parsing request\n"));
 
         /* parse method */
         int32_t method = -1;
@@ -1720,8 +1720,8 @@ static err_t http_parse_request (struct pbuf *inp, http_state_t *hs, struct altc
         uri_len = (u16_t)(sp2 - (sp1 + 1));
         if((sp2 != NULL) && (sp2 > sp1)) {
             char *crlfcrlf;
-            /* wait for CRLFCRLF (indicating end of HTTP headers) before parsing anything */
-            if ((crlfcrlf = lwip_strnstr(data, CRLF CRLF, data_len)) != NULL) {
+            /* wait for HTTP_EOLHTTP_EOL (indicating end of HTTP headers) before parsing anything */
+            if ((crlfcrlf = lwip_strnstr(data, HTTP_EOL HTTP_EOL, data_len)) != NULL) {
                 char *uri = sp1 + 1;
 #if LWIP_HTTPD_SUPPORT_11_KEEPALIVE
             /* This is HTTP/1.0 compatible: for strict 1.1, a connection
@@ -1734,7 +1734,7 @@ static err_t http_parse_request (struct pbuf *inp, http_state_t *hs, struct altc
                 uri[uri_len] = '\0';
                 LWIP_DEBUGF(HTTPD_DEBUG, ("Received \"%s\" request for URI: \"%s\"\n", data, uri));
 
-                hs->hdr = strstr(sp2 + 1, CRLF) + 2;
+                hs->hdr = strstr(sp2 + 1, HTTP_EOL) + 2;
                 hs->hdr_len = crlfcrlf - hs->hdr + 4;
                 hs->payload_offset = crlfcrlf - data + 4;
 /*
@@ -1791,7 +1791,7 @@ static err_t http_parse_request (struct pbuf *inp, http_state_t *hs, struct altc
 
     clen = pbuf_clen(hs->req);
     if ((hs->req->tot_len <= LWIP_HTTPD_REQ_BUFSIZE) && (clen <= LWIP_HTTPD_REQ_QUEUELEN)) {
-        /* request not fully received (too short or CRLF is missing) */
+        /* request not fully received (too short or HTTP_EOL is missing) */
         return ERR_INPROGRESS;
     } else {
         badrequest:
@@ -1969,9 +1969,9 @@ static err_t http_process_request (http_state_t *hs, const char *uri)
                         free(allow);
                     } else {
 #if LWIP_HTTPD_SUPPORT_POST
-                        http_set_rom_response_header(&hs->request, "Allow: HEAD,GET,POST,OPTIONS");
+                        http_set_rom_response_header(&hs->request, "Allow: HEAD,GET,POST,OPTIONS" HTTP_EOL);
 #else
-                        http_set_rom_response_header(&hs->request, "Allow: HEAD,GET,OPTIONS");
+                        http_set_rom_response_header(&hs->request, "Allow: HEAD,GET,OPTIONS" HTTP_EOL);
 #endif
                     }
                 }

@@ -71,6 +71,8 @@ extern "C" {
 #endif
 #define LWIP_HTTPD_SUPPORT_POST 1
 
+#define HTTP_EOL "\r\n"
+
 typedef enum {
     HTTP_Head = 0,
     HTTP_Get,
@@ -135,7 +137,7 @@ char *http_get_param_value (http_request_t *request, const char *key, char *valu
 int http_get_header_value_len (http_request_t *hs, const char *name);
 char *http_get_header_value (http_request_t *hs, const char *name, char *value, uint32_t size);
 bool http_set_response_header (http_request_t *request, const char *name, const char *value);
-bool http_add_rom_response_header (http_request_t *request, const char *hdr);
+bool http_set_rom_response_header (http_request_t *request, const char *hdr);
 void http_set_response_status (http_request_t *request, const char *status);
 void httpd_register_uri_handlers (const httpd_uri_handler_t *httpd_uri_handlers, uint_fast8_t httpd_num_uri_handlers);
 void httpd_free_pbuf (http_request_t *request, struct pbuf *p);
