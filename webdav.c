@@ -1,7 +1,7 @@
 //
 // webdav.c - WebDAV plugin for lwIP "raw" http daemon
 //
-// v0.1 / 2022-08-28 / Io Engineering / Terje
+// v0.2 / 2026-01-25 / Io Engineering / Terje
 //
 
 /*
@@ -46,6 +46,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "urlencode.h"
 #include "urldecode.h"
 #include "fs_ram.h"
+#include "etag.h"
 
 #include "grbl/hal.h"
 #include "grbl/vfs.h"
@@ -148,37 +149,50 @@ static err_t dav_init_request (http_request_t *request, http_method_t method, ch
     return ERR_OK;
 }
 
-static void propfind_add_properties (char *fname, u32_t size, struct tm *created, struct tm *modified, bool is_dir, vfs_file_t *file)
+static void propfind_add_properties (char *path, u32_t size, struct tm *created, struct tm *modified, bool is_dir, vfs_file_t *file)
 {
-    char buffer[LWIP_HTTPD_MAX_REQUEST_URI_LEN + 1];
+    bool is_root;
+    char *name = path, buffer[LWIP_HTTPD_MAX_REQUEST_URI_LEN + 1];
 
-    if(strlen(fname) > 1 && strrchr(fname, '/'))
-        fname = strrchr(fname, '/') + 1;
+    if(!(is_root = is_dir && !strcmp(path, "/"))) {
+        if(strlen(path) > 1 && strrchr(path, '/'))
+            name = strrchr(path, '/') + 1;
+    }
 
-    urlencode(fname, buffer, sizeof(buffer) - 1);
+    *buffer = '\0'; // shut up the compiler...
+
+    urlencode(name, buffer, sizeof(buffer) - 1);
+    if(!is_root && is_dir)
+        strcat(buffer, "/");
 
     vfs_puts("<D:response><D:href>", file);
     vfs_puts(buffer, file);
-    vfs_puts("</D:href><D:propstat>", file);
-
-    vfs_puts("<D:status>HTTP/1.1 200 OK</D:status><D:prop>", file);
-
-    vfs_puts("<D:displayname>", file);
-    vfs_puts(strcmp(fname, "/") ? fname : "root", file);
-    vfs_puts("</D:displayname>", file);
+    vfs_puts("</D:href><D:propstat><D:prop>", file);
 
     vfs_puts("<D:creationdate>", file);
     vfs_puts(strtointernetdt(created), file);
-    vfs_puts("</D:creationdate>", file);
+    vfs_puts("</D:creationdate><D:displayname>", file);
+    vfs_puts(is_root ? "root" : name, file);
+    vfs_puts("</D:displayname>", file);
 
-    vfs_puts("<D:getlastmodified>", file);
-    vfs_puts(strtointernetdt(modified), file);
-    vfs_puts("</D:getlastmodified>", file);
+    if(!is_dir) {
 
-    if (!is_dir) {
+        char *etag;
+
         vfs_puts("<D:getcontentlength>", file);
         vfs_puts(uitoa(size), file);
-        vfs_puts("</D:getcontentlength><D:getcontenttype>text/plain</D:getcontenttype><D:resourcetype/>", file);
+        vfs_puts("</D:getcontentlength><D:getcontenttype>", file);
+        vfs_puts(http_get_content_type(name, true), file);
+        vfs_puts("</D:getcontenttype>", file);
+        if((etag = etag_create(path, modified))) {
+            vfs_puts("<D:getetag>", file);
+            vfs_puts(etag, file);
+            vfs_puts("</D:getetag>", file);
+        }
+        vfs_puts("<D:getlastmodified>", file);
+        vfs_puts(strtointernetdt(modified), file);
+        vfs_puts("</D:getlastmodified><D:resourcetype/>", file);
+
     } else
         vfs_puts("<D:resourcetype><D:collection/></D:resourcetype>", file);
 
@@ -199,7 +213,7 @@ static void propfind_add_properties (char *fname, u32_t size, struct tm *created
 
 #endif
 
-    vfs_puts("</D:prop></D:propstat></D:response>", file);
+    vfs_puts("</D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>", file);
 }
 
 static void propfind_scan (char *uri, int depth, vfs_file_t *file)
@@ -278,7 +292,7 @@ static void propfind_receive_finished (http_request_t *request, char *response_u
 
     http_set_response_status(request, "207 Multi-Status");
 
-    vfs_puts("<?xml version=\"1.0\" encoding=\"utf-8\"?>", dav->vfsh);
+    vfs_puts("<?xml version=\"1.0\" encoding=\"utf-8\" ?>", dav->vfsh);
     vfs_puts("<D:multistatus xmlns:D=\"DAV:\">", dav->vfsh);
 
     if(vfs_stat(dav->uri, &st) == 0 || !strcmp(dav->uri, "/")) {
@@ -342,7 +356,7 @@ static void proppatch_receive_finished (http_request_t *request, char *response_
 */
     char *tstamp;
 
-    if(dav->payload && (tstamp = strstr(dav->payload, "getlastmodified"))) {
+    if(*dav->payload && (tstamp = strstr(dav->payload, "getlastmodified"))) {
 
         struct tm modified = {0};
         if((tstamp = strchr(tstamp, '>') + 1)) {
@@ -410,7 +424,7 @@ static err_t dav_process_request (http_request_t *request, http_method_t method,
                             http_set_response_status(request, "201 Created");
                     }
                 } else {
-                    uri = "404.html";
+                    strcpy(uri, "404.html");
                     http_set_response_status(request, "404 Not found");
                 }
             }
@@ -422,7 +436,7 @@ static err_t dav_process_request (http_request_t *request, http_method_t method,
                 webdav_data_t *dav = (webdav_data_t *)request->private_data;
 
                 if (dav->type == Resource_NotExist) {
-                    uri = "404.html";
+                    strcpy(uri, "404.html");
                 } else {
 
                     char *destination = NULL, *host = NULL, *renameto;
@@ -457,7 +471,7 @@ static err_t dav_process_request (http_request_t *request, http_method_t method,
                 webdav_data_t *dav = (webdav_data_t *)request->private_data;
 
                 if(dav->type == Resource_NotExist) {
-                    uri = "404.html";
+                    strcpy(uri, "404.html");
                 } else {
 
                     if(dav->type == Resource_Directory)
@@ -527,9 +541,9 @@ static err_t dav_process_request (http_request_t *request, http_method_t method,
 static void dav_on_options_report (http_request_t *request)
 {
 #if WEBDAV_ENABLE_LOCK
-    http_set_rom_response_header(request, "DAV: 1,2");
+    http_set_rom_response_header(request, "DAV: 1,2" HTTP_EOL);
 #else
-    http_set_rom_response_header(request, "DAV: 1");
+    http_set_rom_response_header(request, "DAV: 1" HTTP_EOL);
 #endif
 }
 
@@ -549,4 +563,4 @@ bool webdav_init (void)
     return true;
 }
 
-#endif
+#endif // WEBDAV

@@ -136,6 +136,7 @@ uint16_t http_get_remote_port (http_request_t *request);
 char *http_get_param_value (http_request_t *request, const char *key, char *value, uint32_t size);
 int http_get_header_value_len (http_request_t *hs, const char *name);
 char *http_get_header_value (http_request_t *hs, const char *name, char *value, uint32_t size);
+const char *http_get_content_type (const char *uri, bool mime_only);
 bool http_set_response_header (http_request_t *request, const char *name, const char *value);
 bool http_set_rom_response_header (http_request_t *request, const char *hdr);
 void http_set_response_status (http_request_t *request, const char *status);

@@ -130,11 +130,10 @@ typedef struct {
   const char *content_type;
 } http_header_t;
 
-#define HTTP_CONTENT_TYPE(contenttype) "Content-Type: " contenttype "\r\n"
-#define HTTP_CONTENT_TYPE_ENCODING(contenttype, encoding) "Content-Type: " contenttype "\r\nContent-Encoding: " encoding "\r\n"
+#define HTTP_CONTENT_TYPE(contenttype) "Content-Type: " contenttype HTTP_EOL
+#define HTTP_CONTENT_TYPE_ENCODING(contenttype, encoding) "Content-Type: " contenttype HTTP_EOL "Content-Encoding: " encoding HTTP_EOL
 
 #define HTTP_HDR_HTML           HTTP_CONTENT_TYPE("text/html; charset=UTF-8")
-#define HTTP_HDR_SSI            HTTP_CONTENT_TYPE("text/html\r\nExpires: Fri, 10 Apr 2008 14:00:00 GMT\r\nPragma: no-cache")
 #define HTTP_HDR_GIF            HTTP_CONTENT_TYPE("image/gif")
 #define HTTP_HDR_PNG            HTTP_CONTENT_TYPE("image/png")
 #define HTTP_HDR_JPG            HTTP_CONTENT_TYPE("image/jpeg")
@@ -142,9 +141,7 @@ typedef struct {
 #define HTTP_HDR_ICO            HTTP_CONTENT_TYPE("image/x-icon")
 #define HTTP_HDR_APP            HTTP_CONTENT_TYPE("application/octet-stream")
 #define HTTP_HDR_JS             HTTP_CONTENT_TYPE("application/javascript")
-#define HTTP_HDR_RA             HTTP_CONTENT_TYPE("application/javascript")
 #define HTTP_HDR_CSS            HTTP_CONTENT_TYPE("text/css")
-#define HTTP_HDR_SWF            HTTP_CONTENT_TYPE("application/x-shockwave-flash")
 #define HTTP_HDR_XML            HTTP_CONTENT_TYPE("text/xml")
 #define HTTP_HDR_PDF            HTTP_CONTENT_TYPE("application/pdf")
 #define HTTP_HDR_JSON           HTTP_CONTENT_TYPE("application/json")
@@ -168,32 +165,31 @@ typedef struct {
  * and http://www.iana.org/assignments/media-types for registered content types
  * and subtypes) */
 PROGMEM static const http_header_t httpd_headers[] = {
-  { "html", HTTP_HDR_HTML},
-  { "json", HTTP_HDR_JSON},
-  { "htm",  HTTP_HDR_HTML},
-  { "gif",  HTTP_HDR_GIF},
-  { "png",  HTTP_HDR_PNG},
-  { "jpg",  HTTP_HDR_JPG},
-  { "bmp",  HTTP_HDR_BMP},
-  { "ico",  HTTP_HDR_ICO},
-  { "class", HTTP_HDR_APP},
-  { "cls",  HTTP_HDR_APP},
-  { "js",   HTTP_HDR_JS},
-  { "ram",  HTTP_HDR_RA},
-  { "css",  HTTP_HDR_CSS},
-  { "swf",  HTTP_HDR_SWF},
-  { "xml",  HTTP_HDR_XML},
-  { "xsl",  HTTP_HDR_XML},
-  { "pdf",  HTTP_HDR_PDF},
-  { "gz", HTTP_HDR_GZIP},
-  { "wasm",  HTTP_HDR_WASM},
-  { "svg",   HTTP_HDR_SVG},
-  { "mjs",   HTTP_HDR_MJS},
-  { "map",   HTTP_HDR_MAP},
-  { "woff",  HTTP_HDR_WOFF},
-  { "woff2", HTTP_HDR_WOFF2},
-  { "ttf",   HTTP_HDR_TTF},
-  { "otf",   HTTP_HDR_OTF}
+  { "html",  HTTP_HDR_HTML },
+  { "json",  HTTP_HDR_JSON },
+  { "htm",   HTTP_HDR_HTML },
+  { "gif",   HTTP_HDR_GIF },
+  { "png",   HTTP_HDR_PNG },
+  { "jpg",   HTTP_HDR_JPG },
+  { "jpeg",  HTTP_HDR_JPG },
+  { "bmp",   HTTP_HDR_BMP },
+  { "ico",   HTTP_HDR_ICO },
+  { "class", HTTP_HDR_APP },
+  { "cls",   HTTP_HDR_APP },
+  { "js",    HTTP_HDR_JS },
+  { "css",   HTTP_HDR_CSS },
+  { "xml",   HTTP_HDR_XML },
+  { "xsl",   HTTP_HDR_XML },
+  { "pdf",   HTTP_HDR_PDF },
+  { "gz",    HTTP_HDR_GZIP },
+  { "wasm",  HTTP_HDR_WASM },
+  { "svg",   HTTP_HDR_SVG },
+  { "mjs",   HTTP_HDR_MJS },
+  { "map",   HTTP_HDR_MAP },
+  { "woff",  HTTP_HDR_WOFF },
+  { "woff2", HTTP_HDR_WOFF2 },
+  { "ttf",   HTTP_HDR_TTF },
+  { "otf",   HTTP_HDR_OTF }
 #ifdef HTTPD_ADDITIONAL_CONTENT_TYPES
   /* If you need to add content types not listed here:
    * #define HTTPD_ADDITIONAL_CONTENT_TYPES {"ct1", HTTP_CONTENT_TYPE("text/ct1")}, {"exe", HTTP_CONTENT_TYPE("application/exe")}
@@ -914,6 +910,53 @@ void http_set_response_status (http_request_t *request, const char *status)
     }
 }
 
+const char *http_get_content_type (const char *uri, bool mime_only)
+{
+    static char mimetype[31];
+
+    char *end, *ext;
+    const char *content_type = NULL;
+    uint_fast8_t idx;
+
+    if(!(end = strchr(uri, '?')))
+        end = strchr(uri, '\0');
+
+    if(!(ext = strrchr(uri, '.')) && ext < end) /* no extension found -> use binary transfer to prevent the browser adding '.txt' on save */
+        content_type = HTTP_HDR_APP;
+
+
+//        if((ext_found = (ext = strrchr(uri, '.')) && ext < end) && lwip_stricmp(".gz", ext)) {
+//            if(strrchr(ext - 1, '.')) {
+//                end = ext;
+//                ext = strrchr(ext - 1, '.');
+//            }
+//        }
+
+    else if(end != uri) {
+        for (idx = 0; idx < NUM_HTTP_HEADERS; idx++) {
+            size_t len = strlen(httpd_headers[idx].extension);
+            ext = end - len;
+            if(ext > uri && *(ext - 1) == '.'  && !lwip_strnicmp(httpd_headers[idx].extension, ext, len)) {
+                content_type = httpd_headers[idx].content_type;
+                break;
+            }
+        }
+    }
+
+    if(content_type == NULL) {
+        if(httpd.on_unknown_content_type == NULL || (content_type = httpd.on_unknown_content_type(ext)) == NULL)
+            content_type = HTTP_HDR_DEFAULT_TYPE;
+    }
+
+    if(mime_only) {
+        ext = strchr(content_type, ' ') + 1;
+        end = strchr(content_type, '\r');
+        content_type = strncpy(mimetype, ext, end - ext);
+        mimetype[end - ext] = '\0';
+    }
+
+    return content_type;
+}
 
 /* We are dealing with a particular filename. Look for one other
 special case.  We assume that any filename with "404" in it must be
@@ -923,47 +966,9 @@ static void set_content_type (http_state_t *hs, const char *uri)
 {
     if(!is_response_header_set(hs, "Content-Type") && hs->response_hdr.next < LWIP_HTTPD_NUM_FILE_HDR_STRINGS) {
 
-        char *end, *ext;
-        bool ext_found = false;
-        uint_fast8_t content_type = NUM_HTTP_HEADERS;
+        hs->response_hdr.string[hs->response_hdr.next++] = http_get_content_type(uri, false);
 
-        if (!(end = strchr(uri, '?')))
-            end = strchr(uri, '\0');
-
-        ext_found = (ext = strrchr(uri, '.')) && ext < end;
-
-//        if((ext_found = (ext = strrchr(uri, '.')) && ext < end) && lwip_stricmp(".gz", ext)) {
-//            if(strrchr(ext - 1, '.')) {
-//                end = ext;
-//                ext = strrchr(ext - 1, '.');
-//            }
-//        }
-
-        if(end != uri) {
-            for (content_type = 0; content_type < NUM_HTTP_HEADERS; content_type++) {
-                size_t len = strlen(httpd_headers[content_type].extension);
-                ext = end - len;
-                if(ext > uri && *(ext - 1) == '.'  && !lwip_strnicmp(httpd_headers[content_type].extension, ext, len))
-                    break;
-            }
-        }
-
-        /* Did we find a matching extension? */
-        if (content_type < NUM_HTTP_HEADERS) {
-            /* yes, store it */
-            hs->response_hdr.string[hs->response_hdr.next++] = httpd_headers[content_type].content_type;
-        } else if (!ext_found) {
-            /* no, no extension found -> use binary transfer to prevent the browser adding '.txt' on save */
-            hs->response_hdr.string[hs->response_hdr.next++] = HTTP_HDR_APP;
-        } else {
-            const char *content_type;
-            if(httpd.on_unknown_content_type && (content_type = httpd.on_unknown_content_type(ext)))
-                hs->response_hdr.string[hs->response_hdr.next++] = content_type;
-            else /* No - use the default, plain text file type. */
-                hs->response_hdr.string[hs->response_hdr.next++] = HTTP_HDR_DEFAULT_TYPE;
-        }
-
-        if(hs->request.encoding)
+        if(hs->request.encoding && hs->response_hdr.next < LWIP_HTTPD_NUM_FILE_HDR_STRINGS)
             hs->response_hdr.string[hs->response_hdr.next++] = httpd_encodings[hs->request.encoding - 1];
     }
 }

@@ -1000,7 +1000,7 @@ static void cmd_rnto (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *fsm)
 
     if(fsm->state != FTPD_RNFR || fsm->renamefrom == NULL)
         send_msg(pcb, fsm, msg503);
-    else if((path == get_path(arg, pcb, fsm))) {
+    else if((path = get_path(arg, pcb, fsm))) {
 
         fsm->state = FTPD_IDLE;
 
