@@ -38,11 +38,10 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "driver.h"
 
+#if ETHERNET_ENABLE || WIFI_ENABLE
+
 #include "sha1.h"
 #include "base64.h"
-#include "httpd.h"
-
-#include "grbl/strutils.h"
 
 char *etag_create (char *path, struct tm *modified)
 {
@@ -69,3 +68,5 @@ char *etag_create (char *path, struct tm *modified)
 */
     return NULL;
 }
+
+#endif
