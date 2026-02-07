@@ -530,7 +530,14 @@ void telnet_stream_handler (sessiondata_t *session)
 
 void telnetd_poll (void)
 {
+    static bool in_poll = false;
+
+    if(in_poll)
+        return;  // Prevent reentrancy from stream_tx_blocking callback
+
+    in_poll = true;
     telnet_stream_handler(&streamSession);
+    in_poll = false;
 }
 
 // Deprecated - remove
