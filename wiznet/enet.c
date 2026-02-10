@@ -3,7 +3,7 @@
 
   Part of grblHAL
 
-  Copyright (c) 2023-2025 Terje Io
+  Copyright (c) 2023-2026 Terje Io
 
   grblHAL is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -76,6 +76,7 @@ static on_report_options_ptr on_report_options;
 static on_stream_changed_ptr on_stream_changed;
 static char netservices[NETWORK_SERVICES_LEN] = "";
 static network_flags_t network_status = {};
+static volatile bool irq_lock = false;
 
 #if MQTT_ENABLE
 
@@ -310,6 +311,9 @@ static void link_status_callback (struct netif *netif)
 {
     static bool dhcp_running = false;
 
+    if(irq_lock)
+        return;
+
     bool isLinkUp = netif_is_link_up(netif);
 
     if(isLinkUp != network_status.link_up) {
@@ -389,16 +393,15 @@ static void enet_poll (void *data)
 
 static void enet_process (void *data)
 {
-    static bool lock = false;
     static struct {
         uint16_t len;
         uint8_t data[ETHERNET_MTU + 100];
     } packet = {0};
 
-    if(lock)
+    if(irq_lock)
         return;
 
-    lock = true;
+    irq_lock = true;
     sockint_kind irq = 0;
 
     if((ctlsocket(SOCKET_MACRAW, CS_GET_INTERRUPT, &irq) == SOCK_OK) || packet.len) {
@@ -442,7 +445,7 @@ static void enet_process (void *data)
         }
     }
 
-    lock = false;
+    irq_lock = false;
 }
 
 static ISR_CODE void ISR_FUNC(irq_handler)(void)
