@@ -436,11 +436,11 @@ static void enet_process (void *data)
 
         if(packet.len) {
             task_delete(enet_process, NULL);
-            task_add_delayed(enet_process, NULL, 1);
+            task_add_delayed(enet_process, NULL, 2);
         }
 
-        if(irq & SIK_RECEIVED) {
-            irq &= SIK_RECEIVED;
+        if(irq /*& SIK_RECEIVED*/) {
+//            irq &= SIK_RECEIVED;
             ctlsocket(SOCKET_MACRAW, CS_CLR_INTERRUPT, &irq);
         }
     }
