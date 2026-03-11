@@ -692,30 +692,38 @@ static void cmd_quit (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *fsm)
     fsm->state = FTPD_QUIT;
 }
 
-static void cmd_cwd (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *fsm)
-{
-    int ret = 0;
-
-    if(*arg == '/') {
-        if(arg[1] == '\0')
-            strcpy(fsm->cwd, arg);
-        else
-            strcpy(fsm->cwd, vfs_fixpath(arg));
-    } else if(strlen(fsm->cwd) + strlen(arg) + 1 < sizeof(fsm->cwd))
-        strcat(fsm->cwd, vfs_fixpath(arg));
-    else
-        ret = -1;
-
-    send_msg(pcb, fsm, ret != 0 ? msg550 : msg250);
-}
-
 static void cmd_cdup (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *fsm)
 {
+    bool was_root = !fsm->cwd[1];
     char *p = strrchr(fsm->cwd, '/');
     if(p != fsm->cwd)
         *p = '\0';
+    else
+        fsm->cwd[1] = '\0';
 
-    send_msg(pcb, fsm, p == fsm->cwd ? msg550 : msg250);
+    send_msg(pcb, fsm, was_root ? msg550 : msg250);
+}
+
+static void cmd_cwd (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *fsm)
+{
+    if(!strcmp(arg, ".."))
+        cmd_cdup(NULL, pcb, fsm);
+    else {
+
+        int ret = 0;
+
+        if(*arg == '/') {
+            if(arg[1] == '\0')
+                strcpy(fsm->cwd, arg);
+            else
+                strcpy(fsm->cwd, vfs_fixpath(arg));
+        } else if(strlen(fsm->cwd) + strlen(arg) + 1 < sizeof(fsm->cwd))
+            strcat(strcat(fsm->cwd, fsm->cwd[1] ? "/" : ""), vfs_fixpath(arg));
+        else
+            ret = -1;
+
+        send_msg(pcb, fsm, ret != 0 ? msg550 : msg250);
+    }
 }
 
 static void cmd_pwd (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *fsm)
