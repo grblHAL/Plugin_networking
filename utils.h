@@ -19,7 +19,6 @@
 #define PASSWORD_LENGTH_MAX (sizeof(password_t) - 1)
 #define HIDDEN_PASSWORD "********"
 
-char *btoa (uint64_t bytes);
 bool is_valid_port (uint16_t port);
 bool is_valid_hostname (const char *hostname);
 bool is_valid_ssid (const char *ssid);
