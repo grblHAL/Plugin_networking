@@ -128,7 +128,7 @@ bool modbus_tcp_send (modbus_tcp_pdu_t *pdu, const modbus_callbacks_t *callbacks
         modbus_client_connect(s);
 
     uint32_t msg_length = offsetof(modbus_tcp_adu_t, pdu.uid) + pdu->length;
-    queue_entry_t *q = calloc(sizeof(queue_entry_t) + msg_length, 1);
+    queue_entry_t *q = calloc(1, sizeof(queue_entry_t) + msg_length);
 
     q->context = context;
     q->msg_length = msg_length;

@@ -47,7 +47,7 @@ extern "C" {
 #endif
 
 #include <stdint.h>
-#include "wizchip_conf.h"
+#include "../wizchip_conf.h"
 
 /// \cond DOXY_APPLY_CODE
 #if defined(_WIZCHIP_) &&  (_WIZCHIP_ == W5100S)

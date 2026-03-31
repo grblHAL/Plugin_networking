@@ -118,7 +118,7 @@ static void network_event (const char *interface, network_status_t status)
         if(intf->name == interface)
             break;
         if(intf->next == NULL) {
-            if((intf->next = calloc(sizeof(net_if_t), 1))) {
+            if((intf->next = calloc(1, sizeof(net_if_t)))) {
                 intf = intf->next;
                 intf->name = interface;
                 break;
