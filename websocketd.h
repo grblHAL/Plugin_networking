@@ -1,12 +1,12 @@
 //
 // websocketd.h - lwIP websocket daemon implementation
 //
-// v2.5 / 2022-09-15 / Io Engineering / Terje
+// v2.9 / 2026-03-30 / Io Engineering / Terje
 //
 
 /*
 
-Copyright (c) 2019-2022, Terje Io
+Copyright (c) 2019-2026, Terje Io
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -53,7 +53,6 @@ extern websocket_events_t websocket;
 
 bool websocketd_init (uint16_t port);
 void websocketd_poll (void);
-void websocketd_notify_link_status (bool link_up);
 bool websocketd_RxPutC (char c);
 void websocketd_stop (void);
 void websocketd_close_connections (void);

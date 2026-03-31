@@ -37,7 +37,7 @@
 uint8_t mac[6] = {0x00, 0x08, 0xDC, 0x12, 0x34, 0x56};
 
 static uint8_t tx_frame[1542];
-static const uint32_t ethernet_polynomial_le = 0xedb88320U;
+//static const uint32_t ethernet_polynomial_le = 0xedb88320U;
 
 /**
  * ----------------------------------------------------------------------------------------------------
@@ -163,7 +163,7 @@ err_t netif_initialize(struct netif *netif)
     netif->hwaddr_len = sizeof(netif->hwaddr);
     return ERR_OK;
 }
-
+/*
 static uint32_t ethernet_frame_crc(const uint8_t *data, int length)
 {
     uint32_t crc = 0xffffffff; // Initial value.
@@ -186,5 +186,5 @@ static uint32_t ethernet_frame_crc(const uint8_t *data, int length)
 
     return ~crc;
 }
-
+*/
 #endif // ETHERNET_ENABLE && _WIZCHIP_ >= 5000 &&  _WIZCHIP_ < 6000

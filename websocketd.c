@@ -1,12 +1,12 @@
 //
 // websocketd.c - lwIP websocket daemon implementation
 //
-// v2.8 / 2025-02-25 / Io Engineering / Terje
+// v2.9 / 2026-03-30 / Io Engineering / Terje
 //
 
 /*
 
-Copyright (c) 2019-2025, Terje Io
+Copyright (c) 2019-2026, Terje Io
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -226,6 +226,7 @@ static const ws_sessiondata_t defaultSettings =
 
 static const io_stream_t *claim_stream (uint32_t baud_rate);
 
+static on_network_event_ptr on_network_event;
 static tcp_server_t ws_server;
 static ws_sessiondata_t clients[WEBUI_MAX_CLIENTS] = {0};
 static ws_streambuffers_t streambuffers = {0};
@@ -1382,12 +1383,6 @@ void websocketd_poll (void)
     } while(idx);
 }
 
-void websocketd_notify_link_status (bool up)
-{
-    if(!up)
-        ws_server.link_lost = true;
-}
-
 void websocketd_close_connections (void)
 {
     uint_fast16_t idx = WEBUI_MAX_CLIENTS;
@@ -1426,6 +1421,14 @@ void websocketd_stop (void)
         tcp_close(ws_server.pcb);
 }
 
+static void onNetworkEvent (const char *interface, network_status_t status)
+{
+    if((ws_server.link_lost = !status.flags.link_up))
+        websocketd_close_connections();
+
+    on_network_event(interface, status);
+}
+
 bool websocketd_init (uint16_t port)
 {
     static io_stream_details_t streams = {
@@ -1446,6 +1449,9 @@ bool websocketd_init (uint16_t port)
             ws_server.pcb = tcp_listen(pcb);
             tcp_accept(ws_server.pcb, websocketd_accept);
             stream_register_streams(&streams);
+
+            on_network_event = networking.event;
+            networking.event = onNetworkEvent;
         }
     }
 

@@ -107,6 +107,6 @@ err_t netif_initialize(struct netif *netif);
  *  \param length the total length of ethernet frame
  *  \return an ethernet frame cyclic redundancy check result value
  */
-static uint32_t ethernet_frame_crc(const uint8_t *data, int length);
+//static uint32_t ethernet_frame_crc(const uint8_t *data, int length);
 
 #endif /* _W5x00_LWIP_H_ */

@@ -1,12 +1,12 @@
 //
 // telnetd.c - lwIP "raw" telnet daemon
 //
-// v2.5 / 2025-04-30 / Io Engineering / Terje
+// v2.6 / 2026-03-30 / Io Engineering / Terje
 //
 
 /*
 
-Copyright (c) 2018-2025, Terje Io
+Copyright (c) 2018-2026, Terje Io
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -216,12 +216,10 @@ static int16_t streamTxGetC (void)
     return data;
 }
 
-/*
 static void streamTxFlush (void)
 {
     streamSession.txbuf.tail = streamSession.txbuf.head;
 }
-*/
 
 static bool streamEnqueueRtCommand (uint8_t c)
 {
@@ -240,6 +238,9 @@ static enqueue_realtime_command_ptr streamSetRtHandler (enqueue_realtime_command
 
 static void streamClose (sessiondata_t *session)
 {
+    streamRxFlush();
+    streamTxFlush();
+
     // Switch I/O stream back to default
     if(session->stream) {
         stream_disconnect(session->stream);
@@ -397,6 +398,7 @@ static err_t telnet_accept (void *arg, struct tcp_pcb *pcb, err_t err)
         .write_char = streamPutC,
         .enqueue_rt_command = streamEnqueueRtCommand,
         .get_rx_buffer_free = streamRxFree,
+        .reset_write_buffer = streamTxFlush,
         .reset_read_buffer = streamRxFlush,
         .cancel_read_buffer = streamRxCancel,
         .suspend_read = streamSuspendInput,
@@ -531,11 +533,6 @@ void telnet_stream_handler (sessiondata_t *session)
 void telnetd_poll (void)
 {
     telnet_stream_handler(&streamSession);
-}
-
-// Deprecated - remove
-void telnetd_notify_link_status (bool up)
-{
 }
 
 void telnetd_close_connections (void)
