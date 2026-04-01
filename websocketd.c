@@ -1369,6 +1369,13 @@ static void websocket_stream_handler (ws_sessiondata_t *session)
 //
 void websocketd_poll (void)
 {
+    static bool in_poll = false;
+
+    if(in_poll)
+        return;  // Prevent reentrancy from stream_tx_blocking callback
+
+    in_poll = true;
+
     ws_sessiondata_t *client;
     uint_fast16_t idx = WEBUI_MAX_CLIENTS;
 
@@ -1381,6 +1388,8 @@ void websocketd_poll (void)
         } else if(client->state == WsState_Closing)
             websocket_close_conn(client, client->pcb);
     } while(idx);
+
+    in_poll = false;
 }
 
 void websocketd_close_connections (void)
