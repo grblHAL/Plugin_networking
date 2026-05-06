@@ -311,15 +311,15 @@ bool websocketd_RxPutC (char c)
 
     // discard input if MPG has taken over...
     if((ok = streambuffers.session && streambuffers.session->state == WsState_Connected && hal.stream.type != StreamType_MPG)) {
-        if(xSemaphoreTake(rx_mux, portMAX_DELAY) == pdTRUE) {
-            if(!enqueue_realtime_command(c)) {                          // If not a real time command attempt to buffer it
+        if(!enqueue_realtime_command(c)) {
+            if(xSemaphoreTake(rx_mux, portMAX_DELAY) == pdTRUE) {
                 uint_fast16_t next_head = BUFNEXT(streambuffers.rxbuf.head, streambuffers.rxbuf);
                 if((overflow = next_head == streambuffers.rxbuf.tail))  // If buffer full
                     streambuffers.rxbuf.overflow = true;                // flag overflow
                 streambuffers.rxbuf.data[streambuffers.rxbuf.head] = c; // add data to buffer
                 streambuffers.rxbuf.head = next_head;                   // and update pointer
+                xSemaphoreGive(rx_mux);
             }
-            xSemaphoreGive(rx_mux);
         }
 
     }
