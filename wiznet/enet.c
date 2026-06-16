@@ -172,6 +172,19 @@ static void report_options (bool newopt)
             hal.stream.write(network->status.ip);
             hal.stream.write("]" ASCII_EOL);
 
+#if MDNS_ENABLE
+            // Advertise the mDNS name being announced so the operator can
+            // tell whether the .local resolution failure is a wrong-name
+            // issue vs. an mDNS-not-actually-running issue. Emitted as
+            // <hostname>.local for clarity since that's the form clients
+            // need to use.
+            if(*network->status.hostname) {
+                hal.stream.write("[HOSTNAME:");
+                hal.stream.write(network->status.hostname);
+                hal.stream.write(".local]" ASCII_EOL);
+            }
+#endif
+
             if(active_stream == StreamType_Telnet || active_stream == StreamType_WebSocket) {
                 hal.stream.write("[NETCON:");
                 hal.stream.write(active_stream == StreamType_Telnet ? "Telnet" : "Websocket");
