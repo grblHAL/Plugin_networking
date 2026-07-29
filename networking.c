@@ -1,7 +1,7 @@
 //
 // networking.c - some shared networking code
 //
-// v2.1 / 2026-01-24 / Io Engineering / Terje
+// v2.2 / 2026-07-29 / Io Engineering / Terje
 //
 
 /*
@@ -89,6 +89,11 @@ PROGMEM static const network_services_t allowed_services = {
     .ssdp = 1,
 #endif
 };
+
+static stream_type_t active_stream = StreamType_Null;
+
+static on_report_options_ptr on_report_options;
+static on_stream_changed_ptr on_stream_changed;
 
 #ifdef __GNUC__
 #pragma GCC diagnostic push
@@ -217,6 +222,102 @@ static status_code_t netif (sys_state_t state, char *args)
     return Status_OK;
 }
 
+static void stream_changed (stream_type_t type)
+{
+    if(type != StreamType_SDCard)
+        active_stream = type;
+
+    if(on_stream_changed)
+        on_stream_changed(type);
+}
+
+typedef struct {
+    bool hostname;
+    bool ethernet;
+    bool newopt;
+    network_services_t services;
+} net_report_t;
+
+static bool report_interfaces (network_info_t *info, network_flags_t flags, void *data)
+{
+    net_report_t *report = (net_report_t *)data;
+
+    if(!report->newopt) {
+
+        uint8_t if_type = info->is_ethernet ? 0 : info->wifi_mode == WiFiMode_STA ? 1 : 2;
+
+        hal.stream.write(((const char * const[]){"[MAC:","[WIFI STA MAC:","[WIFI AP MAC:"})[if_type]);
+        hal.stream.write(info->mac);
+        hal.stream.write("]" ASCII_EOL);
+
+        hal.stream.write(((const char * const[]){"[IP:","[STA IP:","[AP IP:"})[if_type]);
+        hal.stream.write(info->status.ip);
+        hal.stream.write("]" ASCII_EOL);
+
+#if MDNS_ENABLE
+        if(report->hostname && info->status.services.mdns && *info->status.hostname) {
+            report->hostname = false;
+            hal.stream.write("[HOSTNAME:");
+            hal.stream.write(info->status.hostname);
+            hal.stream.write(".local]" ASCII_EOL);
+        }
+#endif
+
+#if MQTT_ENABLE
+        if(*info->mqtt_client_id) {
+            hal.stream.write("[MQTT CLIENTID:");
+            hal.stream.write(info->mqtt_client_id);
+            hal.stream.write(flags.mqtt_connected ? "]" ASCII_EOL : " (offline)]" ASCII_EOL);
+        }
+#endif
+    }
+
+    report->ethernet |= info->is_ethernet;
+    report->services.mask |= info->status.services.mask;
+
+    return false;
+}
+
+static void report_options (bool newopt)
+{
+    if(net_if.name) {
+
+        net_report_t report = { .newopt = newopt, .hostname = true };
+
+        networking_enumerate_interfaces(report_interfaces, &report);
+
+        if(newopt) {
+
+            hal.stream.write(report.ethernet ? ",ETH" : ",WIFI");
+#if FTP_ENABLE
+            if(report.services.ftp)
+                hal.stream.write(",FTP");
+#endif
+#if WEBDAV_ENABLE
+            if(report.services.webdav)
+                hal.stream.write(",WebDAV");
+#endif
+#if MDNS_ENABLE
+            if(report.services.mdns)
+                hal.stream.write(",mDNS");
+#endif
+#if SSDP_ENABLE
+            if(report.services.ssdp)
+                hal.stream.write(",SSDP");
+#endif
+        } else {
+
+            if(active_stream == StreamType_Telnet || active_stream == StreamType_WebSocket) {
+                hal.stream.write("[NETCON:");
+                hal.stream.write(active_stream == StreamType_Telnet ? "Telnet" : "Websocket");
+                hal.stream.write("]" ASCII_EOL);
+            }
+        }
+    }
+
+    on_report_options(newopt);
+}
+
 void networking_init (void)
 {
     static bool ok = false;
@@ -232,7 +333,14 @@ void networking_init (void)
 
     if(!ok) {
         ok = true;
+
         system_register_commands(&net_commands);
+
+        on_report_options = grbl.on_report_options;
+        grbl.on_report_options = report_options;
+
+        on_stream_changed = grbl.on_stream_changed;
+        grbl.on_stream_changed = stream_changed;
     }
 }
 

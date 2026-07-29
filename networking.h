@@ -173,7 +173,8 @@ typedef union {
                  ip_aquired        :1,
                  ap_started        :1,
                  ap_scan_completed :1,
-                 unassigned        :11;
+                 mqtt_connected    :1,
+                 unassigned        :10;
     };
 } network_flags_t;
 
