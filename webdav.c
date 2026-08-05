@@ -45,11 +45,11 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "httpd.h"
 #include "urlencode.h"
 #include "urldecode.h"
-#include "fs_ram.h"
 #include "etag.h"
 
 #include "grbl/hal.h"
 #include "grbl/vfs.h"
+#include "grbl/fs_ram.h"
 #include "grbl/strutils.h"
 
 typedef enum {
