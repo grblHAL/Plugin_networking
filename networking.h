@@ -56,7 +56,10 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define TX_BUFFER_SIZE 1024 // must be a power of 2
 #endif
 
+#ifndef SOCKET_TIMEOUT
 #define SOCKET_TIMEOUT 0
+#endif
+
 #ifndef TCP_SLOW_INTERVAL
 #define TCP_SLOW_INTERVAL 500
 #endif
