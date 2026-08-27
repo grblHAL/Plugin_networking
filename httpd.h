@@ -95,6 +95,7 @@ typedef enum {
     HTTPEncoding_Compress,
     HTTPEncoding_Deflate,
     HTTPEncoding_GZIP,
+    HTTPEncoding_Brotli
 } http_encoding_t;
 
 struct http_state; // members defined in httpd.c

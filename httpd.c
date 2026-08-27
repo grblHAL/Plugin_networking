@@ -2,7 +2,6 @@
  * @file
  * LWIP HTTP server implementation
  */
-
 /*
  * Copyright (c) 2001-2003 Swedish Institute of Computer Science.
  * All rights reserved.
@@ -121,7 +120,8 @@
 static const char *httpd_encodings[] = {
     "Content-Encoding: compress" HTTP_EOL,
     "Content-Encoding: deflate" HTTP_EOL,
-    "Content-Encoding: gzip" HTTP_EOL
+    "Content-Encoding: gzip" HTTP_EOL,
+    "Content-Encoding: br" HTTP_EOL
 };
 
 /** This struct is used for a list of HTTP header strings for various filename extensions. */
@@ -150,6 +150,7 @@ typedef struct {
 #define HTTP_HDR_SVG            HTTP_CONTENT_TYPE("image/svg+xml")
 #define HTTP_HDR_GZIP           HTTP_CONTENT_TYPE("application/gzip")
 #define HTTP_HDR_HTMLGZ         HTTP_CONTENT_TYPE_ENCODING("text/html; charset=UTF-8", "gzip")
+#define HTTP_HDR_HTMLBR         HTTP_CONTENT_TYPE_ENCODING("text/html; charset=UTF-8", "br")
 #define HTTP_HDR_SVGZ           HTTP_CONTENT_TYPE_ENCODING("image/svg+xml", "gzip")
 #define HTTP_HDR_WASM           HTTP_CONTENT_TYPE("application/wasm")
 #define HTTP_HDR_WOFF           HTTP_CONTENT_TYPE("font/woff")
@@ -362,6 +363,7 @@ typedef struct {
 PROGMEM static const default_filename httpd_default_filenames[] = {
     {"/index.html",    0, HTTP_HDR_HTML,   HTTPEncoding_None },
     {"/index.html.gz", 0, HTTP_HDR_HTMLGZ, HTTPEncoding_GZIP },
+    {"/index.html.br", 0, HTTP_HDR_HTMLBR, HTTPEncoding_Brotli },
     {"/index.htm",     0, HTTP_HDR_HTML,   HTTPEncoding_None }
 };
 
@@ -858,7 +860,8 @@ static bool is_response_header_set (http_state_t *hs, const char *hdr)
     uint_fast8_t i = LWIP_HTTPD_NUM_FILE_HDR_STRINGS, len = strchr(hdr, ':') ? strchr(hdr, ':') - hdr : strlen(hdr);
     do {
         i--;
-        is_set = hs->response_hdr.string[i] && !strncmp(hdr, hs->response_hdr.string[i], len);
+        if(!(is_set = hs->response_hdr.string[i] && !strncmp(hdr, hs->response_hdr.string[i], len)))
+            is_set = !strncmp(hdr, strchr(hs->response_hdr.string[i], '\n') + 1, len);
     } while(i && !is_set);
 
     return is_set;

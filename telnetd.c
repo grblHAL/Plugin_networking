@@ -434,6 +434,10 @@ static err_t telnet_accept (void *arg, struct tcp_pcb *pcb, err_t err)
     tcp_poll(pcb, telnet_poll, TELNETD_POLL_INTERVAL);
     tcp_sent(pcb, telnet_sent);
     tcp_arg(pcb, &streamSession);
+#if LWIP_TCP_KEEPALIVE
+//??    pcb->keep_idle = pcb->keep_intvl = 3000;
+    ip_set_option(pcb, SOF_KEEPALIVE);
+#endif
 
     // Switch I/O stream to Telnet connection
     if(stream_connect(&telnet_stream))
@@ -452,6 +456,13 @@ void telnet_stream_handler (sessiondata_t *session)
 
     if(session->pcb == NULL)
         return;
+
+#if LWIP_TCP_KEEPALIVE
+    if(session->pcb->keep_cnt == session->pcb->keep_cnt_sent) {
+        telnet_close_conn(session, session->pcb);
+        return;
+    }
+#endif
 
     // 1. Process pending input packet
 
