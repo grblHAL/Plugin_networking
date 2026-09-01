@@ -4,7 +4,7 @@
 
   Part of grblHAL
 
-  Copyright (c) 2023-2024 Terje Io
+  Copyright (c) 2023-2026 Terje Io
 
   grblHAL is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -536,9 +536,9 @@ PROGMEM static const setting_detail_t modbus_settings[] = {
 };
 
 PROGMEM static const setting_descr_t modbus_settings_descr[] = {
-    { Setting_ModbusIpAddressBase, "IP address of unit." },
-    { Setting_ModbusPortBase, "Port number of unit, 502 is the standard ModBus port." },
-    { Setting_ModbusIdBase, "ModBus id of unit, set to to 0 to disable communication." },
+    { Setting_ModbusIpAddressBase, "IP address of unit ?." },
+    { Setting_ModbusPortBase, "Port number of unit ?, 502 is the standard ModBus port." },
+    { Setting_ModbusIdBase, "ModBus id of unit ?, set to to 0 to disable communication." },
 };
 
 static void modbus_settings_save (void)
@@ -565,7 +565,7 @@ static void modbus_settings_load (void)
         modbus_settings_restore();
 }
 
-bool modbus_settings_iterator (const setting_detail_t *setting, setting_output_ptr callback, void *data)
+static bool modbus_settings_iterator (const setting_detail_t *setting, setting_output_ptr callback, void *data)
 {
     uint_fast16_t idx, instance;
 
@@ -575,6 +575,11 @@ bool modbus_settings_iterator (const setting_detail_t *setting, setting_output_p
         callback(setting, idx * MODBUS_TCP_SETTINGS_INCREMENT + instance, data);
 
     return true;
+}
+
+static setting_id_t modbus_settings_normalize (setting_id_t id)
+{
+    return id >= Setting_ModbusTCPBase && id <= Setting_ModbusTCPMax ? (setting_id_t)(Setting_ModbusTCPBase + (id % MODBUS_TCP_SETTINGS_INCREMENT)) : id;
 }
 
 static bool modbus_tcp_isup (void)
@@ -626,7 +631,8 @@ void modbus_tcp_client_init (void)
         .save = modbus_settings_save,
         .load = modbus_settings_load,
         .restore = modbus_settings_restore,
-        .iterator = modbus_settings_iterator
+        .iterator = modbus_settings_iterator,
+        .normalize = modbus_settings_normalize
     };
 
     if((nvs_address = nvs_alloc(sizeof(modbus_tcp_settings_t) * MODBUS_N_CLIENTS))) {

@@ -860,8 +860,10 @@ static bool is_response_header_set (http_state_t *hs, const char *hdr)
     uint_fast8_t i = LWIP_HTTPD_NUM_FILE_HDR_STRINGS, len = strchr(hdr, ':') ? strchr(hdr, ':') - hdr : strlen(hdr);
     do {
         i--;
-        if(!(is_set = hs->response_hdr.string[i] && !strncmp(hdr, hs->response_hdr.string[i], len)))
-            is_set = !strncmp(hdr, strchr(hs->response_hdr.string[i], '\n') + 1, len);
+        if(!(is_set = hs->response_hdr.string[i] && !strncmp(hdr, hs->response_hdr.string[i], len))) {
+            char *s;
+            is_set = (s = strchr(hs->response_hdr.string[i], '\n')) && !strncmp(hdr, s + 1, len);
+        }
     } while(i && !is_set);
 
     return is_set;
