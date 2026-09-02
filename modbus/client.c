@@ -567,19 +567,24 @@ static void modbus_settings_load (void)
 
 static bool modbus_settings_iterator (const setting_detail_t *setting, setting_output_ptr callback, void *data)
 {
+    bool ok = true;
     uint_fast16_t idx, instance;
 
     normalize_id(setting->id, &instance);
 
-    for(idx = 0; idx < MODBUS_N_CLIENTS; idx++)
-        callback(setting, idx * MODBUS_TCP_SETTINGS_INCREMENT + instance, data);
+    for(idx = 0; idx < MODBUS_N_CLIENTS; idx++) {
+        if(!(ok = callback(setting, idx * MODBUS_TCP_SETTINGS_INCREMENT + instance, data)))
+            break;
+    }
 
-    return true;
+    return ok;
 }
 
 static setting_id_t modbus_settings_normalize (setting_id_t id)
 {
-    return id >= Setting_ModbusTCPBase && id <= Setting_ModbusTCPMax ? (setting_id_t)(Setting_ModbusTCPBase + (id % MODBUS_TCP_SETTINGS_INCREMENT)) : id;
+    return id >= Setting_ModbusTCPBase && id <= Setting_ModbusTCPMax
+            ? (setting_id_t)(Setting_ModbusTCPBase + (id % MODBUS_TCP_SETTINGS_INCREMENT))
+            : (setting_id_t)0;
 }
 
 static bool modbus_tcp_isup (void)
