@@ -147,7 +147,7 @@ static bool streamRxPutC (char c)
     bool mpg, overflow = false;
 
     // discard input if MPG has taken over...
-    if(!(mpg = hal.stream.type == StreamType_MPG)) {
+    if(!(mpg = hal.stream.state.is_mpg)) {
         if(xSemaphoreTake(rx_mux, portMAX_DELAY) == pdTRUE) {
             if(!enqueue_realtime_command(c)) {                              // If not a real time command attempt to buffer it
                 uint_fast16_t next_head = BUFNEXT(streamSession.rxbuf.head, streamSession.rxbuf);

@@ -1,7 +1,7 @@
 //
 // websocketd.c - lwIP websocket daemon implementation
 //
-// v2.9 / 2026-03-30 / Io Engineering / Terje
+// v2.9 / 2026-09-03 / Io Engineering / Terje
 //
 
 /*
@@ -309,7 +309,7 @@ bool websocketd_RxPutC (char c)
     bool ok, overflow = false;
 
     // discard input if MPG has taken over...
-    if((ok = streambuffers.session && streambuffers.session->state == WsState_Connected && hal.stream.type != StreamType_MPG)) {
+    if((ok = streambuffers.session && streambuffers.session->state == WsState_Connected && !hal.stream.state.is_mpg)) {
         if(!enqueue_realtime_command(c)) {
             if(xSemaphoreTake(rx_mux, portMAX_DELAY) == pdTRUE) {
                 uint_fast16_t next_head = BUFNEXT(streambuffers.rxbuf.head, streambuffers.rxbuf);
@@ -1257,6 +1257,10 @@ static err_t websocketd_accept (void *arg, struct tcp_pcb *pcb, err_t err)
     tcp_err(pcb, websocket_err);
     tcp_poll(pcb, websocket_poll, WEBSOCKETD_POLL_INTERVAL);
     tcp_sent(pcb, websocket_sent);
+#if LWIP_TCP_KEEPALIVE
+//??    pcb->keep_idle = pcb->keep_intvl = 3000;
+    ip_set_option(pcb, SOF_KEEPALIVE);
+#endif
 
     return ERR_OK;
 }
@@ -1287,6 +1291,16 @@ static void websocket_stream_handler (ws_sessiondata_t *session)
     static uint8_t txbuf[TX_BUFFER_SIZE + 4];
 
     uint_fast16_t len;
+
+    if(session->pcb == NULL)
+        return;
+
+#if LWIP_TCP_KEEPALIVE
+    if(session->pcb->keep_cnt == session->pcb->keep_cnt_sent) {
+        websocket_close_conn(session, session->pcb);
+        return;
+    }
+#endif
 
     // 1. Process pending input packet
     if(session->packet.p) {

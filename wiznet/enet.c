@@ -315,38 +315,6 @@ static void link_check (void *data)
     task_add_delayed(link_check, NULL, LINK_CHECK_INTERVAL);
 }
 
-static void enet_poll (void *data)
-{
-    static uint32_t ms = 0;
-
-    sys_check_timeouts();
-
-    if(network_status.link_up) switch(++ms) {
-#if TELNET_ENABLE
-        case 1:
-            if(services.telnet)
-                telnetd_poll();
-            break;
-#endif
-#if WEBSOCKET_ENABLE
-        case 2:
-            if(services.websocket)
-                websocketd_poll();
-            break;
-#endif
-        case 3:
-            ms = 0;
-#if FTP_ENABLE
-            if(services.ftp)
-                ftpd_poll();
-#endif
-#if MODBUS_ENABLE & MODBUS_TCP_ENABLED
-            modbus_tcp_client_poll();
-#endif
-            break;
-    }
-}
-
 static void enet_process (void *data)
 {
     static struct {
@@ -403,6 +371,40 @@ static void enet_process (void *data)
 
     irq_lock = false;
 }
+
+static void enet_poll (void *data)
+{
+    static uint32_t ms = 0;
+
+    enet_process(NULL);
+    sys_check_timeouts();
+
+    if(network_status.link_up) switch(++ms) {
+#if TELNET_ENABLE
+        case 1:
+            if(services.telnet)
+                telnetd_poll();
+            break;
+#endif
+#if WEBSOCKET_ENABLE
+        case 2:
+            if(services.websocket)
+                websocketd_poll();
+            break;
+#endif
+        case 3:
+            ms = 0;
+#if FTP_ENABLE
+            if(services.ftp)
+                ftpd_poll();
+#endif
+#if MODBUS_ENABLE & MODBUS_TCP_ENABLED
+            modbus_tcp_client_poll();
+#endif
+            break;
+    }
+}
+
 
 static ISR_CODE void ISR_FUNC(irq_handler)(void)
 {

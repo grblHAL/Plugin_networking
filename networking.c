@@ -222,13 +222,13 @@ static status_code_t netif (sys_state_t state, char *args)
     return Status_OK;
 }
 
-static void stream_changed (stream_type_t type)
+static void stream_changed (void)
 {
-    if(type != StreamType_SDCard)
-        active_stream = type;
+    if(!stream_is_file())
+        active_stream = hal.stream.type;
 
     if(on_stream_changed)
-        on_stream_changed(type);
+        on_stream_changed();
 }
 
 typedef struct {
