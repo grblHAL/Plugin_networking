@@ -169,7 +169,7 @@ bool modbus_tcp_send (modbus_tcp_pdu_t *pdu, const modbus_callbacks_t *callbacks
         modbus_process(s, s->pcb, NULL);
 
         while(q->sync && !(ms - q->timeout >= 50)) {
-            grbl.on_execute_realtime(state_get());
+            task_execute(false);
             ms = hal.get_elapsed_ticks();
         }
 
