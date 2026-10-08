@@ -75,7 +75,6 @@ static modbus_session_t session[MODBUS_N_CLIENTS];
 static modbus_tcp_settings_t modbus[MODBUS_N_CLIENTS];
 static volatile bool spin_lock = false, is_up = false;
 
-static driver_reset_ptr driver_reset;
 static nvs_address_t nvs_address;
 
 static void modbus_process (void *arg, struct altcp_pcb *pcb, struct pbuf *p);
@@ -198,13 +197,11 @@ static bool modbus_rtu_send (modbus_message_t *msg, const modbus_callbacks_t *ca
     return ok;
 }
 
-static void modbus_reset (void)
+static void modbus_tcp_reset (bool abort)
 {
     while(spin_lock);
 
     modbus_tcp_flush_queue();
-
-    driver_reset();
 }
 
 static void modbus_process (void *arg, struct altcp_pcb *pcb, struct pbuf *p)
@@ -623,7 +620,8 @@ void modbus_tcp_client_init (void)
         .interface = Modbus_InterfaceTCP,
         .is_up = modbus_tcp_isup,
         .flush_queue = modbus_tcp_flush_queue,
-        .send = modbus_rtu_send
+        .send = modbus_rtu_send,
+        .reset = modbus_tcp_reset
     };
 
     static setting_details_t setting_details = {
@@ -641,9 +639,6 @@ void modbus_tcp_client_init (void)
     };
 
     if((nvs_address = nvs_alloc(sizeof(modbus_tcp_settings_t) * MODBUS_N_CLIENTS))) {
-
-        driver_reset = hal.driver_reset;
-        hal.driver_reset = modbus_reset;
 
         modbus_register_api(&api);
         settings_register(&setting_details);
