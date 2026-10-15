@@ -539,7 +539,14 @@ FLASHMEM void telnet_stream_handler (sessiondata_t *session)
 
 FLASHMEM void telnetd_poll (void)
 {
+    static bool in_poll = false;
+
+    if(in_poll)
+        return;  // Prevent reentrancy from stream_tx_blocking callback
+
+    in_poll = true;
     telnet_stream_handler(&streamSession);
+    in_poll = false;
 }
 
 FLASHMEM void telnetd_close_connections (void)
