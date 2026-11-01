@@ -60,6 +60,7 @@
 
 #include "grbl/vfs.h"
 #include "grbl/stream_file.h"
+#include "grbl/strutils.h"
 #include "grbl/platform.h"
 
 #if FS_ENABLE & FS_SDCARD
@@ -264,7 +265,9 @@ typedef struct ftpd_msgstate {
     int passive;
     char *renamefrom;
     ftpd_cmd_t cmd;
-    vfs_path_t cwd;
+    char _cwd[101];
+    string_t cwdb;
+    string_t cwd;
 } ftpd_msgstate_t;
 
 #if FTP_TXPOLL
@@ -711,12 +714,8 @@ FLASHMEM static void cmd_cwd (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *f
     else {
 
         int ret = 0;
-        size_t len = strlen(arg) + (*arg == '/' ? 0 : strlen(fsm->cwd.name));
 
-        if(len > fsm->cwd.len && (fsm->cwd.name = realloc(fsm->cwd.name, len + 2)))
-            fsm->cwd.len = len;
-
-        if(fsm->cwd.name) {
+        if(strset(&fsm->cwd, strlen(arg) + (*arg == '/' ? 1 : strlen(fsm->cwd.name) + 1), NULL)) {
             if(*arg == '/') {
                 if(arg[1] == '\0')
                     strcpy(fsm->cwd.name, arg);
@@ -1181,7 +1180,7 @@ FLASHMEM static void ftpd_msgerr (void *arg, err_t err)
         if(fsm->cmd.text)
             free(fsm->cmd.text);
 
-        if(fsm->cwd.name)
+        if(fsm->cwd.name != fsm->_cwd)
             free(fsm->cwd.name);
 
         free(fsm);
@@ -1206,7 +1205,7 @@ FLASHMEM static void ftpd_msgclose (struct tcp_pcb *pcb, ftpd_msgstate_t *fsm)
     if(fsm->cmd.text)
         free(fsm->cmd.text);
 
-    if(fsm->cwd.name)
+    if(fsm->cwd.name != fsm->_cwd)
         free(fsm->cwd.name);
 
     free(fsm);
@@ -1331,36 +1330,29 @@ FLASHMEM static err_t ftpd_msgaccept (void *arg, struct tcp_pcb *pcb, err_t err)
     ftpd_msgstate_t *fsm;
 
     /* Allocate memory for the structure that holds the state of the connection. */
-    if((fsm = malloc(sizeof(ftpd_msgstate_t))) == NULL) {
+    if((fsm = calloc(1, sizeof(ftpd_msgstate_t))) == NULL) {
         LWIP_DEBUGF(FTPD_DEBUG, ("ftpd_msgaccept: Out of memory\n"));
         return ERR_MEM;
     }
 
-    memset(fsm, 0, sizeof(ftpd_msgstate_t));
-    fsm->cwd.len = 100;
-
-    if((fsm->cwd.name = malloc(fsm->cwd.len + 1)) == NULL) {
-        LWIP_DEBUGF(FTPD_DEBUG, ("ftpd_msgaccept: Out of memory\n"));
-        free(fsm);
-        return ERR_MEM;
-    }
+    fsm->cwd.base = &fsm->cwdb;
+    fsm->cwd.len = fsm->cwdb.len = sizeof(fsm->_cwd) - 1;
+    fsm->cwd.name = fsm->cwdb.name = fsm->_cwd;
 
     /* Initialize the structure. */
     if(sfifo_init(&fsm->fifo, 2000) != 0) {
-        free(fsm->cwd.name);
         free(fsm);
         return ERR_MEM;
     }
 
     if(fsm->vfs != NULL) {
         sfifo_close(&fsm->fifo);
-        free(fsm->cwd.name);
         free(fsm);
         return ERR_CLSD;
     }
 
     fsm->state = FTPD_IDLE;
-    strcpy(fsm->cwd.name, "/");
+    strcpy(fsm->_cwd, "/");
 
     /* Tell TCP that this is the structure we wish to be passed for our callbacks. */
     tcp_arg(pcb, fsm);

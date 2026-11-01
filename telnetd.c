@@ -74,6 +74,7 @@ typedef struct
     TickType_t lastSendTime;
     err_t lastErr;
     uint8_t errorCount;
+    bool init_ok;
 } sessiondata_t;
 
 PROGMEM static const sessiondata_t defaultSettings =
@@ -339,6 +340,22 @@ FLASHMEM static err_t telnet_recv (void *arg, struct tcp_pcb *pcb, struct pbuf *
         uint_fast16_t len = q->len, taken = 0;
 
         while(q) {
+
+            if(!session->init_ok) {
+                session->init_ok = true;
+                // Strip Telnet negotiation commands
+                while(*payload == 255 && len >= 3 && *(payload + 1) > 250 ) {
+                    payload +=3;
+                    taken += 3;
+                    len -=3;
+                }
+                if(len == 0 && (q = q->next)) {
+                    len = q->len;
+                    payload = q->payload;
+                }
+                if(len == 0)
+                    break;
+            }
 
             if(!streamRxPutC(*payload++)) {
                 payload--;
