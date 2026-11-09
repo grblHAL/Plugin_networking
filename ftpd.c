@@ -51,12 +51,9 @@
 #include <string.h>
 #include <time.h>
 
-#include "lwip/debug.h"
-#include "lwip/stats.h"
-#include "lwip/tcp.h"
-
 #include "ftpd.h"
 #include "sfifo.h"
+#include "networking.h"
 
 #include "grbl/vfs.h"
 #include "grbl/stream_file.h"
@@ -244,7 +241,7 @@ typedef struct {
     vfs_dirent_t *vfs_dirent;
     vfs_file_t *vfs_file;
     sfifo_t fifo;
-    struct tcp_pcb *msgpcb;
+    struct altcp_pcb *msgpcb;
     struct ftpd_msgstate *msgfs;
 } ftpd_datastate_t;
 
@@ -259,8 +256,8 @@ typedef struct ftpd_msgstate {
     vfs_t *vfs;
     struct ip4_addr dataip;
     u16_t dataport;
-    struct tcp_pcb *datalistenpcb;
-    struct tcp_pcb *datapcb;
+    struct altcp_pcb *datalistenpcb;
+    struct altcp_pcb *datapcb;
     ftpd_datastate_t *datafs;
     int passive;
     char *renamefrom;
@@ -273,7 +270,7 @@ typedef struct ftpd_msgstate {
 #if FTP_TXPOLL
 static struct {
     ftpd_datastate_t *fsd;
-    struct tcp_pcb *pcb;
+    struct altcp_pcb *pcb;
 } poll;
 #endif
 
@@ -281,7 +278,7 @@ static bool fs_mounted = false;
 static on_vfs_mount_ptr on_vfs_mount;
 static on_vfs_unmount_ptr on_vfs_unmount;
 
-static void send_msg (struct tcp_pcb *pcb, ftpd_msgstate_t *fsm, const char *msg, ...);
+static void send_msg (struct altcp_pcb *pcb, ftpd_msgstate_t *fsm, const char *msg, ...);
 
 FLASHMEM static void ftpd_dataerr (void *arg, err_t err)
 {
@@ -295,7 +292,7 @@ FLASHMEM static void ftpd_dataerr (void *arg, err_t err)
     }
 }
 
-FLASHMEM static char *get_path (char *name, struct tcp_pcb *pcb, ftpd_msgstate_t *fsm)
+FLASHMEM static char *get_path (char *name, struct altcp_pcb *pcb, ftpd_msgstate_t *fsm)
 {
     char *path = NULL;
 
@@ -317,7 +314,7 @@ FLASHMEM static char *get_path (char *name, struct tcp_pcb *pcb, ftpd_msgstate_t
     return path;
 }
 
-FLASHMEM static void ftpd_dataclose (struct tcp_pcb *pcb, ftpd_datastate_t *fsd)
+FLASHMEM static void ftpd_dataclose (struct altcp_pcb *pcb, ftpd_datastate_t *fsd)
 {
     if(fsd->vfs_file)
         vfs_close(fsd->vfs_file);
@@ -325,15 +322,15 @@ FLASHMEM static void ftpd_dataclose (struct tcp_pcb *pcb, ftpd_datastate_t *fsd)
     if(fsd->vfs_dir)
         vfs_closedir(fsd->vfs_dir);
 
-    tcp_arg(pcb, NULL);
-    tcp_sent(pcb, NULL);
-    tcp_recv(pcb, NULL);
+    altcp_arg(pcb, NULL);
+    altcp_sent(pcb, NULL);
+    altcp_recv(pcb, NULL);
 
     if (fsd->msgfs) {
         if (fsd->msgfs->datalistenpcb) {
-            tcp_arg(fsd->msgfs->datalistenpcb, NULL);
-            tcp_accept(fsd->msgfs->datalistenpcb, NULL);
-            tcp_close(fsd->msgfs->datalistenpcb);
+            altcp_arg(fsd->msgfs->datalistenpcb, NULL);
+            altcp_accept(fsd->msgfs->datalistenpcb, NULL);
+            altcp_close(fsd->msgfs->datalistenpcb);
             fsd->msgfs->datalistenpcb = NULL;
         }
         fsd->msgfs->datafs = NULL;
@@ -343,25 +340,25 @@ FLASHMEM static void ftpd_dataclose (struct tcp_pcb *pcb, ftpd_datastate_t *fsd)
     sfifo_close(&fsd->fifo);
     free(fsd);
 
-    tcp_arg(pcb, NULL);
-    tcp_close(pcb);
+    altcp_arg(pcb, NULL);
+    altcp_close(pcb);
 }
 
-FLASHMEM static void send_data (struct tcp_pcb *pcb, ftpd_datastate_t *fsd)
+FLASHMEM static void send_data (struct altcp_pcb *pcb, ftpd_datastate_t *fsd)
 {
     u16_t len;
 
-    if ((len = sfifo_used(&fsd->fifo)) > 0) {
+    if((len = sfifo_used(&fsd->fifo)) > 0) {
 
         int i = fsd->fifo.readpos;
 
         /* We cannot send more data than space available in the send buffer. */
-        len = tcp_sndbuf(pcb) < len ? tcp_sndbuf(pcb) : len;
+        len = altcp_sndbuf(pcb) < len ? altcp_sndbuf(pcb) : len;
 
         LWIP_DEBUGF(FTPD_DEBUG, ("send_data: %d %d %d\n", len, i, *(fsd->fifo.buffer + i)));
 
-        if ((i + len) > fsd->fifo.size) {
-            if (tcp_write(pcb, fsd->fifo.buffer + i, (u16_t)(fsd->fifo.size - i), 1) != ERR_OK) {
+        if((i + len) > fsd->fifo.size) {
+            if(altcp_write(pcb, fsd->fifo.buffer + i, (u16_t)(fsd->fifo.size - i), 1) != ERR_OK) {
                 LWIP_DEBUGF(FTPD_DEBUG, ("send_data: error writing!\n"));
                 return;
             }
@@ -370,18 +367,18 @@ FLASHMEM static void send_data (struct tcp_pcb *pcb, ftpd_datastate_t *fsd)
             i = 0;
         }
 
-        if (tcp_write(pcb, fsd->fifo.buffer + i, len, 1) != ERR_OK) {
+        if(altcp_write(pcb, fsd->fifo.buffer + i, len, 1) != ERR_OK) {
             LWIP_DEBUGF(FTPD_DEBUG, ("send_data: error writing!\n"));
             return;
         }
 
         fsd->fifo.readpos += len;
         if(fsd->eof && sfifo_used(&fsd->fifo) == 0)
-            tcp_output(pcb);
+            altcp_output(pcb);
     }
 }
 
-FLASHMEM static void send_file (ftpd_datastate_t *fsd, struct tcp_pcb *pcb)
+FLASHMEM static void send_file (ftpd_datastate_t *fsd, struct altcp_pcb *pcb)
 {
     if (!fsd->connected)
         return;
@@ -425,13 +422,13 @@ FLASHMEM static void send_file (ftpd_datastate_t *fsd, struct tcp_pcb *pcb)
         }
 
         ftpd_msgstate_t *fsm = fsd->msgfs;
-        struct tcp_pcb *msgpcb = fsd->msgpcb;
+        struct altcp_pcb *msgpcb = fsd->msgpcb;
         ftpd_dataclose(pcb, fsd);
         send_msg(msgpcb, fsm, len < 0 ? msg451 : msg226);
     }
 }
 
-FLASHMEM static void send_next_directory (ftpd_datastate_t *fsd, struct tcp_pcb *pcb, int shortlist)
+FLASHMEM static void send_next_directory (ftpd_datastate_t *fsd, struct altcp_pcb *pcb, int shortlist)
 {
     int len;
     char buffer[512];
@@ -504,7 +501,7 @@ FLASHMEM static void send_next_directory (ftpd_datastate_t *fsd, struct tcp_pcb 
             }
 
             ftpd_msgstate_t *fsm = fsd->msgfs;
-            struct tcp_pcb *msgpcb = fsd->msgpcb;
+            struct altcp_pcb *msgpcb = fsd->msgpcb;
             ftpd_dataclose(pcb, fsd);
             fsm->datapcb = NULL;
             send_msg(msgpcb, fsm, msg226);
@@ -513,7 +510,7 @@ FLASHMEM static void send_next_directory (ftpd_datastate_t *fsd, struct tcp_pcb 
     }
 }
 
-FLASHMEM static err_t ftpd_datasent (void *arg, struct tcp_pcb *pcb, u16_t len)
+FLASHMEM static err_t ftpd_datasent (void *arg, struct altcp_pcb *pcb, u16_t len)
 {
     ftpd_datastate_t *fsd = arg;
 
@@ -539,7 +536,7 @@ FLASHMEM static err_t ftpd_datasent (void *arg, struct tcp_pcb *pcb, u16_t len)
     return ERR_OK;
 }
 
-FLASHMEM static err_t ftpd_datarecv (void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
+FLASHMEM static err_t ftpd_datarecv (void *arg, struct altcp_pcb *pcb, struct pbuf *p, err_t err)
 {
     ftpd_datastate_t *fsd = arg;
 
@@ -557,13 +554,13 @@ FLASHMEM static err_t ftpd_datarecv (void *arg, struct tcp_pcb *pcb, struct pbuf
         } while((q = q->next));
 
         /* Inform TCP that we have taken the data. */
-        tcp_recved(pcb, tot_len);
+        altcp_recved(pcb, tot_len);
         pbuf_free(p);
     }
 
     if (err == ERR_OK && p == NULL) {
         ftpd_msgstate_t *fsm = fsd->msgfs;
-        struct tcp_pcb *msgpcb = fsd->msgpcb;
+        struct altcp_pcb *msgpcb = fsd->msgpcb;
 
         ftpd_dataclose(pcb, fsd);
         fsm->datapcb = NULL;
@@ -573,7 +570,7 @@ FLASHMEM static err_t ftpd_datarecv (void *arg, struct tcp_pcb *pcb, struct pbuf
     return ERR_OK;
 }
 
-FLASHMEM static err_t ftpd_dataconnected (void *arg, struct tcp_pcb *pcb, err_t err)
+FLASHMEM static err_t ftpd_dataconnected (void *arg, struct altcp_pcb *pcb, err_t err)
 {
     ftpd_datastate_t *fsd = arg;
 
@@ -582,12 +579,12 @@ FLASHMEM static err_t ftpd_dataconnected (void *arg, struct tcp_pcb *pcb, err_t 
 
     /* Tell TCP that we wish to be informed of incoming data by a call
        to the ftpd_datarecv() function. */
-    tcp_recv(pcb, ftpd_datarecv);
+    altcp_recv(pcb, ftpd_datarecv);
 
     /* Tell TCP that we wish be to informed of data that has been
        successfully sent by a call to the ftpd_sent() function. */
-    tcp_sent(pcb, ftpd_datasent);
-    tcp_err(pcb, ftpd_dataerr);
+    altcp_sent(pcb, ftpd_datasent);
+    altcp_err(pcb, ftpd_dataerr);
 
     switch (fsd->msgfs->state) {
         case FTPD_LIST:
@@ -611,7 +608,7 @@ FLASHMEM static err_t ftpd_dataconnected (void *arg, struct tcp_pcb *pcb, err_t 
     return ERR_OK;
 }
 
-FLASHMEM static int open_dataconnection (struct tcp_pcb *pcb, ftpd_msgstate_t *fsm)
+FLASHMEM static int open_dataconnection (struct altcp_pcb *pcb, ftpd_msgstate_t *fsm)
 {
     if (fsm->passive)
         return 0;
@@ -635,7 +632,7 @@ FLASHMEM static int open_dataconnection (struct tcp_pcb *pcb, ftpd_msgstate_t *f
         return 1;
     }
 
-    fsm->datapcb = tcp_new();
+    fsm->datapcb = altcp_new();
 
     if (fsm->datapcb == NULL) {
         sfifo_close(&fsm->datafs->fifo);
@@ -645,17 +642,17 @@ FLASHMEM static int open_dataconnection (struct tcp_pcb *pcb, ftpd_msgstate_t *f
     }
 
     /* Tell TCP that this is the structure we wish to be passed for our callbacks. */
-    tcp_arg(fsm->datapcb, fsm->datafs);
+    altcp_arg(fsm->datapcb, fsm->datafs);
     ip_addr_t dataip;
     IP_SET_TYPE_VAL(dataip, IPADDR_TYPE_V4);
     ip4_addr_copy(*ip_2_ip4(&dataip), fsm->dataip);
-    tcp_connect(fsm->datapcb, &dataip, fsm->dataport, ftpd_dataconnected);
+    altcp_connect(fsm->datapcb, &dataip, fsm->dataport, ftpd_dataconnected);
     LWIP_DEBUGF(FTPD_DEBUG, ("open con\n"));
 
     return 0;
 }
 
-FLASHMEM static void cmd_user (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *fsm)
+FLASHMEM static void cmd_user (char *arg, struct altcp_pcb *pcb, ftpd_msgstate_t *fsm)
 {
     send_msg(pcb, fsm, msg331);
     fsm->state = FTPD_PASS;
@@ -665,7 +662,7 @@ FLASHMEM static void cmd_user (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *
      */
 }
 
-FLASHMEM static void cmd_pass (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *fsm)
+FLASHMEM static void cmd_pass (char *arg, struct altcp_pcb *pcb, ftpd_msgstate_t *fsm)
 {
     send_msg(pcb, fsm, msg230);
     fsm->state = FTPD_IDLE;
@@ -675,7 +672,7 @@ FLASHMEM static void cmd_pass (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *
      */
 }
 
-FLASHMEM static void cmd_port (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *fsm)
+FLASHMEM static void cmd_port (char *arg, struct altcp_pcb *pcb, ftpd_msgstate_t *fsm)
 {
     unsigned pHi, pLo;
     unsigned ip[4];
@@ -689,13 +686,13 @@ FLASHMEM static void cmd_port (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *
     }
 }
 
-FLASHMEM static void cmd_quit (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *fsm)
+FLASHMEM static void cmd_quit (char *arg, struct altcp_pcb *pcb, ftpd_msgstate_t *fsm)
 {
     send_msg(pcb, fsm, msg221);
     fsm->state = FTPD_QUIT;
 }
 
-FLASHMEM static void cmd_cdup (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *fsm)
+FLASHMEM static void cmd_cdup (char *arg, struct altcp_pcb *pcb, ftpd_msgstate_t *fsm)
 {
     bool was_root = !fsm->cwd.name[1];
     char *p = strrchr(fsm->cwd.name, '/');
@@ -707,7 +704,7 @@ FLASHMEM static void cmd_cdup (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *
     send_msg(pcb, fsm, was_root ? msg550 : msg250);
 }
 
-FLASHMEM static void cmd_cwd (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *fsm)
+FLASHMEM static void cmd_cwd (char *arg, struct altcp_pcb *pcb, ftpd_msgstate_t *fsm)
 {
     if(!strcmp(arg, ".."))
         cmd_cdup(NULL, pcb, fsm);
@@ -715,7 +712,7 @@ FLASHMEM static void cmd_cwd (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *f
 
         int ret = 0;
 
-        if(strset(&fsm->cwd, strlen(arg) + (*arg == '/' ? 1 : strlen(fsm->cwd.name) + 1), NULL)) {
+        if(strset_(&fsm->cwd, strlen(arg) + (*arg == '/' ? 1 : strlen(fsm->cwd.name) + 1), NULL)) {
             if(*arg == '/') {
                 if(arg[1] == '\0')
                     strcpy(fsm->cwd.name, arg);
@@ -730,14 +727,14 @@ FLASHMEM static void cmd_cwd (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *f
     }
 }
 
-FLASHMEM static void cmd_pwd (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *fsm)
+FLASHMEM static void cmd_pwd (char *arg, struct altcp_pcb *pcb, ftpd_msgstate_t *fsm)
 {
     send_msg(pcb, fsm, msg257PWD, fsm->cwd.name);
 
 //        send_msg(pcb, fsm, msg550);
 }
 
-FLASHMEM static void cmd_list_common (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *fsm, int shortlist)
+FLASHMEM static void cmd_list_common (char *arg, struct altcp_pcb *pcb, ftpd_msgstate_t *fsm, int shortlist)
 {
     vfs_dir_t *vfs_dir;
 
@@ -758,17 +755,17 @@ FLASHMEM static void cmd_list_common (char *arg, struct tcp_pcb *pcb, ftpd_msgst
     send_msg(pcb, fsm, msg150);
 }
 
-FLASHMEM static void cmd_nlst (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *fsm)
+FLASHMEM static void cmd_nlst (char *arg, struct altcp_pcb *pcb, ftpd_msgstate_t *fsm)
 {
     cmd_list_common(arg, pcb, fsm, 1);
 }
 
-FLASHMEM static void cmd_list (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *fsm)
+FLASHMEM static void cmd_list (char *arg, struct altcp_pcb *pcb, ftpd_msgstate_t *fsm)
 {
     cmd_list_common(arg, pcb, fsm, 0);
 }
 
-FLASHMEM static void cmd_retr (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *fsm)
+FLASHMEM static void cmd_retr (char *arg, struct altcp_pcb *pcb, ftpd_msgstate_t *fsm)
 {
     char *path;
     
@@ -798,7 +795,7 @@ FLASHMEM static void cmd_retr (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *
     }
 }
 
-FLASHMEM static void cmd_stor (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *fsm)
+FLASHMEM static void cmd_stor (char *arg, struct altcp_pcb *pcb, ftpd_msgstate_t *fsm)
 {
     char *path;
     
@@ -825,12 +822,12 @@ FLASHMEM static void cmd_stor (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *
     }
 }
 
-FLASHMEM static void cmd_noop (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *fsm)
+FLASHMEM static void cmd_noop (char *arg, struct altcp_pcb *pcb, ftpd_msgstate_t *fsm)
 {
     send_msg(pcb, fsm, msg200);
 }
 
-FLASHMEM static void cmd_site (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *fsm)
+FLASHMEM static void cmd_site (char *arg, struct altcp_pcb *pcb, ftpd_msgstate_t *fsm)
 {
     const char *msg = msg502;
 
@@ -883,16 +880,16 @@ FLASHMEM static void cmd_site (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *
     send_msg(pcb, fsm, msg);
 }
 
-FLASHMEM static void cmd_syst (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *fsm)
+FLASHMEM static void cmd_syst (char *arg, struct altcp_pcb *pcb, ftpd_msgstate_t *fsm)
 {
     send_msg(pcb, fsm, msg214SYST, "UNIX");
 }
 
-FLASHMEM static void cmd_pasv (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *fsm)
+FLASHMEM static void cmd_pasv (char *arg, struct altcp_pcb *pcb, ftpd_msgstate_t *fsm)
 {
     static u16_t port = 4096;
     static u16_t start_port = 4096;
-    struct tcp_pcb *temppcb;
+    struct altcp_pcb *temppcb;
 
     /* Allocate memory for the structure that holds the state of the connection. */
     if (!(fsm->datafs = malloc(sizeof(ftpd_datastate_t)))) {
@@ -909,7 +906,7 @@ FLASHMEM static void cmd_pasv (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *
         return;
     }
 
-    if (!(fsm->datalistenpcb = tcp_new())) {
+    if (!(fsm->datalistenpcb = altcp_new())) {
         free(fsm->datafs);
         sfifo_close(&fsm->datafs->fifo);
         send_msg(pcb, fsm, msg451);
@@ -926,7 +923,7 @@ FLASHMEM static void cmd_pasv (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *
 
         fsm->dataport = port;
 
-        if ((err = tcp_bind(fsm->datalistenpcb, (ip_addr_t*)&pcb->local_ip, fsm->dataport)) == ERR_OK)
+        if ((err = altcp_bind(fsm->datalistenpcb, (ip_addr_t*)&pcb->local_ip, fsm->dataport)) == ERR_OK)
             break;
 
         if (start_port == port)
@@ -942,7 +939,7 @@ FLASHMEM static void cmd_pasv (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *
         }
     }
 
-    if (!(temppcb = tcp_listen(fsm->datalistenpcb))) {
+    if (!(temppcb = altcp_listen(fsm->datalistenpcb))) {
         LWIP_DEBUGF(FTPD_DEBUG, ("cmd_pasv: tcp_listen failed\n"));
         ftpd_dataclose(fsm->datalistenpcb, fsm->datafs);
         fsm->datalistenpcb = NULL;
@@ -957,19 +954,19 @@ FLASHMEM static void cmd_pasv (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *
     fsm->datafs->msgpcb = pcb;
 
     /* Tell TCP that this is the structure we wish to be passed for our callbacks. */
-    tcp_arg(fsm->datalistenpcb, fsm->datafs);
-    tcp_accept(fsm->datalistenpcb, ftpd_dataconnected);
+    altcp_arg(fsm->datalistenpcb, fsm->datafs);
+    altcp_accept(fsm->datalistenpcb, ftpd_dataconnected);
 
     send_msg(pcb, fsm, msg227, ip4_addr1(ip_2_ip4(&pcb->local_ip)), ip4_addr2(ip_2_ip4(&pcb->local_ip)), ip4_addr3(ip_2_ip4(&pcb->local_ip)), ip4_addr4(ip_2_ip4(&pcb->local_ip)), (fsm->dataport >> 8) & 0xff, (fsm->dataport) & 0xff);
 }
 
-FLASHMEM static void cmd_abrt (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *fsm)
+FLASHMEM static void cmd_abrt (char *arg, struct altcp_pcb *pcb, ftpd_msgstate_t *fsm)
 {
     if (fsm->datafs != NULL) {
-        tcp_arg(fsm->datapcb, NULL);
-        tcp_sent(fsm->datapcb, NULL);
-        tcp_recv(fsm->datapcb, NULL);
-        tcp_abort(pcb);
+        altcp_arg(fsm->datapcb, NULL);
+        altcp_sent(fsm->datapcb, NULL);
+        altcp_recv(fsm->datapcb, NULL);
+        altcp_abort(pcb);
         sfifo_close(&fsm->datafs->fifo);
         free(fsm->datafs);
         fsm->datafs = NULL;
@@ -977,7 +974,7 @@ FLASHMEM static void cmd_abrt (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *
     fsm->state = FTPD_IDLE;
 }
 
-FLASHMEM static void cmd_type (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *fsm)
+FLASHMEM static void cmd_type (char *arg, struct altcp_pcb *pcb, ftpd_msgstate_t *fsm)
 {
     LWIP_DEBUGF(FTPD_DEBUG, ("Got TYPE -%s-\n", arg));
     
@@ -989,13 +986,13 @@ FLASHMEM static void cmd_type (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *
     send_msg(pcb, fsm, msg200);
 }
 
-FLASHMEM static void cmd_mode (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *fsm)
+FLASHMEM static void cmd_mode (char *arg, struct altcp_pcb *pcb, ftpd_msgstate_t *fsm)
 {
     LWIP_DEBUGF(FTPD_DEBUG, ("Got MODE -%s-\n", arg));
     send_msg(pcb, fsm, msg502);
 }
 
-FLASHMEM static void cmd_rnfr (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *fsm)
+FLASHMEM static void cmd_rnfr (char *arg, struct altcp_pcb *pcb, ftpd_msgstate_t *fsm)
 {
     if(fsm->renamefrom)
         free(fsm->renamefrom);
@@ -1006,7 +1003,7 @@ FLASHMEM static void cmd_rnfr (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *
     }
 }
 
-FLASHMEM static void cmd_rnto (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *fsm)
+FLASHMEM static void cmd_rnto (char *arg, struct altcp_pcb *pcb, ftpd_msgstate_t *fsm)
 {
     char *path;
 
@@ -1025,7 +1022,7 @@ FLASHMEM static void cmd_rnto (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *
     }
 }
 
-FLASHMEM static void cmd_mkd (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *fsm)
+FLASHMEM static void cmd_mkd (char *arg, struct altcp_pcb *pcb, ftpd_msgstate_t *fsm)
 {
     char *path;
 
@@ -1036,7 +1033,7 @@ FLASHMEM static void cmd_mkd (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *f
     }
 }
 
-FLASHMEM static void cmd_rmd (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *fsm)
+FLASHMEM static void cmd_rmd (char *arg, struct altcp_pcb *pcb, ftpd_msgstate_t *fsm)
 {
     char *path;
 
@@ -1054,7 +1051,7 @@ FLASHMEM static void cmd_rmd (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *f
     }
 }
 
-FLASHMEM static void cmd_dele (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *fsm)
+FLASHMEM static void cmd_dele (char *arg, struct altcp_pcb *pcb, ftpd_msgstate_t *fsm)
 {
     char *path;
 
@@ -1076,7 +1073,7 @@ FLASHMEM static void cmd_dele (char *arg, struct tcp_pcb *pcb, ftpd_msgstate_t *
 
 typedef struct {
     char const *const cmd;
-    void (*func) (char *arg, struct tcp_pcb * pcb, ftpd_msgstate_t * fsm);
+    void (*func) (char *arg, struct altcp_pcb * pcb, ftpd_msgstate_t * fsm);
     const char *msg;
     uint8_t check_busy :1, check_fs: 1;
 } ftpd_command_t;
@@ -1111,19 +1108,19 @@ PROGMEM static const ftpd_command_t ftpd_commands[] = {
     { NULL }
 };
 
-FLASHMEM static void send_msgdata (struct tcp_pcb *pcb, ftpd_msgstate_t *fsm)
+FLASHMEM static void send_msgdata (struct altcp_pcb *pcb, ftpd_msgstate_t *fsm)
 {
     u16_t len;
 
-    if ((len = sfifo_used(&fsm->fifo)) > 0) {
+    if((len = sfifo_used(&fsm->fifo)) > 0) {
 
         int i = fsm->fifo.readpos;
 
         /* We cannot send more data than space available in the send buffer. */
-        len = len > tcp_sndbuf(pcb) ? tcp_sndbuf(pcb) : len;
+        len = len > altcp_sndbuf(pcb) ? altcp_sndbuf(pcb) : len;
 
-        if ((i + len) > fsm->fifo.size) {
-            if (tcp_write(pcb, fsm->fifo.buffer + i, (u16_t)(fsm->fifo.size - i), 1) != ERR_OK) {
+        if((i + len) > fsm->fifo.size) {
+            if(altcp_write(pcb, fsm->fifo.buffer + i, (u16_t)(fsm->fifo.size - i), 1) != ERR_OK) {
                 LWIP_DEBUGF(FTPD_DEBUG, ("send_msgdata: error writing!\n"));
                 return;
             }
@@ -1132,7 +1129,7 @@ FLASHMEM static void send_msgdata (struct tcp_pcb *pcb, ftpd_msgstate_t *fsm)
             i = 0;
         }
 
-        if (tcp_write(pcb, fsm->fifo.buffer + i, len, 1) != ERR_OK) {
+        if(altcp_write(pcb, fsm->fifo.buffer + i, len, 1) != ERR_OK) {
             LWIP_DEBUGF(FTPD_DEBUG, ("send_msgdata: error writing!\n"));
             return;
         }
@@ -1141,7 +1138,7 @@ FLASHMEM static void send_msgdata (struct tcp_pcb *pcb, ftpd_msgstate_t *fsm)
     }
 }
 
-FLASHMEM static void send_msg (struct tcp_pcb *pcb, ftpd_msgstate_t *fsm, const char *msg, ...)
+FLASHMEM static void send_msg (struct altcp_pcb *pcb, ftpd_msgstate_t *fsm, const char *msg, ...)
 {
     va_list arg;
     char buffer[1024];
@@ -1187,13 +1184,13 @@ FLASHMEM static void ftpd_msgerr (void *arg, err_t err)
     }
 }
 
-FLASHMEM static void ftpd_msgclose (struct tcp_pcb *pcb, ftpd_msgstate_t *fsm)
+FLASHMEM static void ftpd_msgclose (struct altcp_pcb *pcb, ftpd_msgstate_t *fsm)
 {
-    tcp_arg(pcb, NULL);
-    tcp_sent(pcb, NULL);
-    tcp_recv(pcb, NULL);
+    altcp_arg(pcb, NULL);
+    altcp_sent(pcb, NULL);
+    altcp_recv(pcb, NULL);
 
-    if (fsm->datafs)
+    if(fsm->datafs)
         ftpd_dataclose(fsm->datapcb, fsm->datafs);
 
     sfifo_close(&fsm->fifo);
@@ -1210,11 +1207,11 @@ FLASHMEM static void ftpd_msgclose (struct tcp_pcb *pcb, ftpd_msgstate_t *fsm)
 
     free(fsm);
 
-    tcp_arg(pcb, NULL);
-    tcp_close(pcb);
+    altcp_arg(pcb, NULL);
+    altcp_close(pcb);
 }
 
-FLASHMEM static err_t ftpd_msgsent (void *arg, struct tcp_pcb *pcb, u16_t len)
+FLASHMEM static err_t ftpd_msgsent (void *arg, struct altcp_pcb *pcb, u16_t len)
 {
     ftpd_msgstate_t *fsm = arg;
 
@@ -1226,14 +1223,14 @@ FLASHMEM static err_t ftpd_msgsent (void *arg, struct tcp_pcb *pcb, u16_t len)
     return ERR_OK;
 }
 
-FLASHMEM static err_t ftpd_msgrecv (void *arg, struct tcp_pcb *pcb, struct pbuf *p, err_t err)
+FLASHMEM static err_t ftpd_msgrecv (void *arg, struct altcp_pcb *pcb, struct pbuf *p, err_t err)
 {
     ftpd_msgstate_t *fsm = arg;
 
     if (err == ERR_OK && p != NULL) {
 
         /* Inform TCP that we have taken the data. */
-        tcp_recved(pcb, p->tot_len);
+        altcp_recved(pcb, p->tot_len);
 
 //        LWIP_DEBUGF(FTPD_DEBUG, ("tcp rcvd %d\n", p->tot_len));
 
@@ -1301,7 +1298,7 @@ FLASHMEM static err_t ftpd_msgrecv (void *arg, struct tcp_pcb *pcb, struct pbuf 
     return ERR_OK;
 }
 
-FLASHMEM static err_t ftpd_msgpoll (void *arg, struct tcp_pcb *pcb)
+FLASHMEM static err_t ftpd_msgpoll (void *arg, struct altcp_pcb *pcb)
 {
     ftpd_msgstate_t *fsm = arg;
 
@@ -1324,7 +1321,7 @@ FLASHMEM static err_t ftpd_msgpoll (void *arg, struct tcp_pcb *pcb)
     return ERR_OK;
 }
 
-FLASHMEM static err_t ftpd_msgaccept (void *arg, struct tcp_pcb *pcb, err_t err)
+FLASHMEM static err_t ftpd_msgaccept (void *arg, struct altcp_pcb *pcb, err_t err)
 {
     LWIP_PLATFORM_DIAG(("ftpd_msgaccept called"));
     ftpd_msgstate_t *fsm;
@@ -1355,17 +1352,17 @@ FLASHMEM static err_t ftpd_msgaccept (void *arg, struct tcp_pcb *pcb, err_t err)
     strcpy(fsm->_cwd, "/");
 
     /* Tell TCP that this is the structure we wish to be passed for our callbacks. */
-    tcp_arg(pcb, fsm);
+    altcp_arg(pcb, fsm);
 
     /* Tell TCP that we wish to be informed of incoming data by a call
        to the ftpd_msgrecv() function. */
-    tcp_recv(pcb, ftpd_msgrecv);
+    altcp_recv(pcb, ftpd_msgrecv);
 
     /* Tell TCP that we wish be to informed of data that has been
        successfully sent by a call to the ftpd_sent() function. */
-    tcp_sent(pcb, ftpd_msgsent);
-    tcp_err(pcb, ftpd_msgerr);
-    tcp_poll(pcb, ftpd_msgpoll, FTPD_POLL_INTERVAL);
+    altcp_sent(pcb, ftpd_msgsent);
+    altcp_err(pcb, ftpd_msgerr);
+    altcp_poll(pcb, ftpd_msgpoll, FTPD_POLL_INTERVAL);
 
     send_msg(pcb, fsm, msg220);
 
@@ -1418,14 +1415,14 @@ FLASHMEM static void onUnmount (const char *path)
 FLASHMEM bool ftpd_init (uint16_t port)
 {
     err_t err;
-    struct tcp_pcb *pcb = tcp_new();
+    struct altcp_pcb *pcb = altcp_new();
 
-    if((err = tcp_bind(pcb, IP_ADDR_ANY, port)) == ERR_OK) {
+    if((err = altcp_bind(pcb, IP_ADDR_ANY, port)) == ERR_OK) {
 
         vfs_load_plugin(vfs_default_fs);
 
-        pcb = tcp_listen(pcb);
-        tcp_accept(pcb, ftpd_msgaccept);
+        pcb = altcp_listen(pcb);
+        altcp_accept(pcb, ftpd_msgaccept);
 
         on_vfs_mount = vfs.on_mount;
         vfs.on_mount = onMount;
