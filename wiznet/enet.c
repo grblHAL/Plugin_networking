@@ -21,7 +21,7 @@
 
 #include "driver.h"
 
-#if ETHERNET_ENABLE && defined(_WIZCHIP_)
+#if (ETHERNET_ENABLE) && defined(_WIZCHIP_)
 
 #include <math.h>
 #include <stdio.h>
@@ -471,6 +471,9 @@ bool enet_start (void)
 
             wizchip_gpio_interrupt_initialize(SOCKET_MACRAW, irq_handler);
 
+#if SNTP_ENABLE
+            networking_start_sntp(&network);
+#endif
 
 #if MDNS_ENABLE || SSDP_ENABLE || LWIP_IGMP
 //            if(network.services.mdns || network.services.ssdp)
@@ -592,7 +595,7 @@ PROGMEM static const setting_group_detail_t ethernet_groups [] = {
 
 PROGMEM static const setting_detail_t ethernet_settings[] = {
     { Setting_NetworkServices, Group_Networking, "Network Services", NULL, Format_Bitfield, netservices, NULL, NULL, Setting_NonCoreFn, ethernet_set_services, ethernet_get_services, NULL, { .reboot_required = On } },
-    { Setting_Hostname, Group_Networking, "Hostname", NULL, Format_String, "x(64)", NULL, "64", Setting_NonCore, ethernet.hostname, NULL, NULL, { .reboot_required = On } },
+    { Setting_Hostname, Group_Networking, "Hostname", NULL, Format_String, "x(32)", NULL, "32", Setting_NonCore, ethernet.hostname, NULL, NULL, { .reboot_required = On } },
     { Setting_IpMode, Group_Networking, "IP Mode", NULL, Format_RadioButtons, "Static,DHCP,AutoIP", NULL, NULL, Setting_NonCore, &ethernet.ip_mode, NULL, NULL, { .reboot_required = On } },
     { Setting_IpAddress, Group_Networking, "IP Address", NULL, Format_IPv4, NULL, NULL, NULL, Setting_NonCoreFn, ethernet_set_ip, ethernet_get_ip, NULL, { .reboot_required = On } },
     { Setting_Gateway, Group_Networking, "Gateway", NULL, Format_IPv4, NULL, NULL, NULL, Setting_NonCoreFn, ethernet_set_ip, ethernet_get_ip, NULL, { .reboot_required = On } },
@@ -606,6 +609,15 @@ PROGMEM static const setting_detail_t ethernet_settings[] = {
     { Setting_HttpPort, Group_Networking, "HTTP port", NULL, Format_Int16, "####0", "1", "65535", Setting_NonCore, &ethernet.http_port, NULL, NULL, { .reboot_required = On } },
 #endif
     { Setting_WebSocketPort, Group_Networking, "Websocket port", NULL, Format_Int16, "####0", "1", "65535", Setting_NonCore, &ethernet.websocket_port, NULL, NULL, { .reboot_required = On } },
+#if SNTP_ENABLE
+    { Setting_NTPServerURI, Group_Networking, "NTP server 1", NULL, Format_String, "x(64)", NULL, "64", Setting_NonCore, ethernet.ntp_server[0], NULL, NULL, { .reboot_required = On } },
+#if SNTP_MAX_SERVERS > 1
+    { Setting_NTPServerURI_2, Group_Networking, "NTP server 2", NULL, Format_String, "x(64)", NULL, "64", Setting_NonCore, ethernet.ntp_server[1], NULL, NULL, { .reboot_required = On } },
+#endif
+#if SNTP_MAX_SERVERS > 2
+    { Setting_NTPServerURI_3, Group_Networking, "NTP server 3", NULL, Format_String, "x(64)", NULL, "64", Setting_NonCore, ethernet.ntp_server[2], NULL, NULL, { .reboot_required = On } },
+#endif
+#endif
 #if MQTT_ENABLE
     { Setting_MQTTBrokerIpAddress, Group_Networking, "MQTT broker IP Address", NULL, Format_IPv4, NULL, NULL, NULL, Setting_NonCoreFn, ethernet_set_ip, ethernet_get_ip, NULL, { .reboot_required = On } },
     { Setting_MQTTBrokerPort, Group_Networking, "MQTT broker port", NULL, Format_Int16, "####0", "1", "65535", Setting_NonCore, &ethernet.mqtt.port, NULL, NULL, { .reboot_required = On } },
@@ -632,6 +644,15 @@ PROGMEM static const setting_descr_t ethernet_settings_descr[] = {
     { Setting_WebSocketPort, "Websocket port number listening for incoming connections."
                              "\\nNOTE: WebUI requires this to be HTTP port number + 1."
     },
+#if SNTP_ENABLE
+    { Setting_NTPServerURI, "Address of time server 1." },
+#if SNTP_MAX_SERVERS > 1
+    { Setting_NTPServerURI_2, "Address of time server 2." },
+#endif
+#if SNTP_MAX_SERVERS > 2
+    { Setting_NTPServerURI_3, "Address of time server 3." },
+#endif
+#endif
 #if MQTT_ENABLE
     { Setting_MQTTBrokerIpAddress, "IP address for remote MQTT broker. Set to 0.0.0.0 to disable connection." },
     { Setting_MQTTBrokerPort, "Remote MQTT broker portnumber." },
@@ -676,6 +697,16 @@ void ethernet_settings_restore (void)
     ethernet.http_port = NETWORK_HTTP_PORT;
     ethernet.websocket_port = NETWORK_WEBSOCKET_PORT;
     ethernet.services.mask = allowed_services.mask;
+
+#if SNTP_ENABLE
+    strcpy(ethernet.ntp_server[0], SNTP_SERVER_ADDR0);
+#if SNTP_MAX_SERVERS > 1
+    strcpy(ethernet.ntp_server[1], SNTP_SERVER_ADDR1);
+#endif
+#if SNTP_MAX_SERVERS > 2
+    strcpy(ethernet.ntp_server[2], SNTP_SERVER_ADDR2);
+#endif
+#endif
 
 #if MQTT_ENABLE
 

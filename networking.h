@@ -86,6 +86,10 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "lwip/apps/mdns.h"
 #endif
 
+#if SNTP_ENABLE
+#include "lwip/apps/sntp.h"
+#endif
+
 #if MQTT_ENABLE
 #include "lwip/apps/mqtt.h"
 #include "./mqtt.h"
@@ -124,6 +128,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "lwip/api.h"
 #include "lwip/netifapi.h"
 #include "lwip/tcp.h"
+#include "lwip/altcp.h"
 #include "lwip/udp.h"
 #include "lwip/tcpip.h"
 #include "lwip/sockets.h"
@@ -208,6 +213,9 @@ bool bmac_eth_get (uint8_t mac[6]);
 bool bmac_wifi_get (uint8_t mac[6]);
 network_services_t networking_get_services_list (char *list);
 bool networking_enumerate_interfaces (networking_enumerate_interfaces_callback_ptr callback, void *data);
+#if SNTP_ENABLE
+bool networking_start_sntp (network_settings_t *network);
+#endif
 #if MQTT_ENABLE
 void networking_make_mqtt_clientid (const char *mac, char *client_id);
 #endif

@@ -424,6 +424,39 @@ __attribute__((weak)) bool bmac_wifi_get (uint8_t mac[6])
     return false;
 }
 
+#if SNTP_ENABLE
+
+FLASHMEM bool networking_start_sntp (network_settings_t *network)
+{
+    uint8_t idx = 0;
+
+    if(hal.rtc.set_datetime) {
+
+        if(*network->ntp_server[0])
+            sntp_setservername(idx++, network->ntp_server[0]);
+        if(*network->ntp_server[1])
+            sntp_setservername(idx++, network->ntp_server[1]);
+        if(*network->ntp_server[2])
+            sntp_setservername(idx++, network->ntp_server[2]);
+
+        if(idx) {
+            sntp_setoperatingmode(SNTP_OPMODE_POLL);
+            sntp_init();
+        }
+    }
+
+    return idx > 0;
+}
+
+FLASHMEM void networking_set_rtc (uint32_t sec, uint32_t us)
+{
+    time_t time = sec - ((u32_t)2208988800);
+    hal.rtc.set_datetime(localtime(&time));
+    sntp_stop();
+}
+
+#endif // SNTP_ENABLE
+
 #if MQTT_ENABLE
 
 // Create MQTT client id from last three values of MAC address
